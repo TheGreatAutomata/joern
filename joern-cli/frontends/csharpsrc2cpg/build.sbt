@@ -93,6 +93,8 @@ astGenDlTask := {
     if (!dest.exists) {
       val url            = s"${astGenDlUrl.value}${fileName.stripSuffix(".exe")}.zip"
       val downloadedFile = files.File(SimpleCache.downloadMaybe(url).toPath)
+println(s"Downloaded file path: ${downloadedFile.path}")
+
       files.File.temporaryDirectory("joern-").apply { unzipTarget =>
         downloadedFile.unzipTo(unzipTarget)
         unzipTarget.list.filter(_.name == fileName).foreach(exec => IO.copyFile(exec.toJava, dest))

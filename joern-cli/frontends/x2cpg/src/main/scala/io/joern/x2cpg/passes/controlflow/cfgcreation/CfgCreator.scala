@@ -91,8 +91,10 @@ class CfgCreator(entryNode: Method, diffGraph: DiffGraphBuilder) {
   /** This method dispatches AST nodes by type and calls corresponding conversion methods.
     */
   protected def cfgFor(node: AstNode): Cfg =
+  {
     node match {
-      case _: Method | _: MethodParameterIn | _: Modifier | _: Local | _: TypeDecl | _: Member =>
+      case _: Method | _: MethodParameterIn | _: Modifier | _: Local | _: TypeDecl | _: Member |
+           _: MacroDecl | _: File | _: Namespace =>
         Cfg.empty
       case _: MethodRef | _: TypeRef | _: MethodReturn =>
         cfgForSingleNode(node.asInstanceOf[CfgNode])
@@ -121,6 +123,8 @@ class CfgCreator(entryNode: Method, diffGraph: DiffGraphBuilder) {
       case _ =>
         cfgForChildren(node)
     }
+  }
+
 
   private def isLogicalOperator(node: AstNode): Boolean = node match {
     case call: Call =>
@@ -358,7 +362,7 @@ class CfgCreator(entryNode: Method, diffGraph: DiffGraphBuilder) {
     */
   protected def cfgForForStatement(node: ControlStructure): Cfg = {
     val children     = node.astChildren.l
-    val nLocals      = children.count(_.isLocal)
+    val nLocals      = children.count(_.isLocal) //我们固定用block包裹了所有的initLocal，所以nLocals为0
     val initExprCfg  = children.find(_.order == nLocals + 1).map(cfgFor).getOrElse(Cfg.empty)
     val conditionCfg = children.find(_.order == nLocals + 2).map(cfgFor).getOrElse(Cfg.empty)
     val loopExprCfg  = children.find(_.order == nLocals + 3).map(cfgFor).getOrElse(Cfg.empty)

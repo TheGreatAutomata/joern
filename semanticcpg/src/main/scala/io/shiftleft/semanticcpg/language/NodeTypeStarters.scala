@@ -177,6 +177,18 @@ class NodeTypeStarters(cpg: Cpg) extends TraversalSource(cpg.graph) {
   def method(namePattern: String): Traversal[Method] =
     method.name(namePattern)
 
+  /** Traverse to all MacroDecl
+   */
+  @Doc(info = "All macroDecls")
+  def macroDecl: Traversal[MacroDecl] =
+    InitialTraversal.from[MacroDecl](cpg.graph, NodeTypes.MACRO_DECL)
+
+  /** Traverse to all MacroDecl
+   */
+  @Doc(info = "All macroRefs")
+  def macroRef: Traversal[MacroRef] =
+    InitialTraversal.from[MacroRef](cpg.graph, NodeTypes.MACRO_REF)
+
   /** Traverse to all formal return parameters
     */
   @Doc(info = "All formal return parameters")
