@@ -27,6 +27,13 @@ class StaticCallLinker(cpg: Cpg) extends ForkJoinParallelCpgPass[Seq[Call]](cpg)
             val size = resolvedMethods.size
             // Add the debug logs with number of METHOD nodes found for given method full name
             if size > 1 then logger.debug(s"Total $size METHOD nodes found for -> ${call.methodFullName}")
+          case DispatchTypes.SAME_FILE_STATIC_DISPATCH =>
+            val callFileName = call.containsIn.filename.headOption.getOrElse("");
+            val resolvedMethods = cpg.method.fullNameExact(call.methodFullName).filenameExact(callFileName).l
+            resolvedMethods.foreach(dst => builder.addEdge(call, dst, EdgeTypes.CALL))
+            val size = resolvedMethods.size
+            // Add the debug logs with number of METHOD nodes found for given method full name
+            if size > 1 then logger.debug(s"Total $size METHOD nodes found for -> ${call.methodFullName}")
           case DispatchTypes.DYNAMIC_DISPATCH =>
           // Do nothing
           case _ => logger.warn(s"Unknown dispatch type on dynamic CALL ${call.code}")
