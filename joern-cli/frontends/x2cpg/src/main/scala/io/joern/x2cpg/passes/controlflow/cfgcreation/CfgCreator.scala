@@ -92,7 +92,8 @@ class CfgCreator(entryNode: Method, diffGraph: DiffGraphBuilder) {
     */
   protected def cfgFor(node: AstNode): Cfg =
     node match {
-      case _: Method | _: MethodParameterIn | _: Modifier | _: Local | _: TypeDecl | _: Member =>
+      case _: Method | _: MethodParameterIn | _: Modifier | _: Local | _: TypeDecl | _: Member |
+           _: MacroDecl | _: File | _: Namespace =>
         Cfg.empty
       case _: MethodRef | _: TypeRef | _: MethodReturn =>
         cfgForSingleNode(node.asInstanceOf[CfgNode])
