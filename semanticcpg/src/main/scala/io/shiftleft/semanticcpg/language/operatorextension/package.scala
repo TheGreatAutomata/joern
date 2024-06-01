@@ -50,6 +50,10 @@ package object operatorextension {
     Operators.indexAccess,
     Operators.indirectIndexAccess
   )
+  
+  val allLeftValueTypes: Set[String] = Set(
+    Operators.indirection
+  ) ++ allFieldAccessTypes ++ allArrayAccessTypes
 
   /** All operators representing direct or indirect accesses to fields of data structures
     */

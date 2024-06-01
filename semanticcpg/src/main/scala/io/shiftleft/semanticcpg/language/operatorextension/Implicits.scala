@@ -26,5 +26,4 @@ trait Implicits {
 
   implicit def toOpAstNodeExt[A <: AstNode](node: A): OpAstNodeMethods[A]               = new OpAstNodeMethods(node)
   implicit def toOpAstNodeTrav[A <: AstNode](steps: Iterator[A]): OpAstNodeTraversal[A] = new OpAstNodeTraversal(steps)
-
 }

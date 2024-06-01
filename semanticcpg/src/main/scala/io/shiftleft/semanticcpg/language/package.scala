@@ -7,6 +7,7 @@ import io.shiftleft.semanticcpg.language.bindingextension.{
   MethodTraversal as BindingMethodTraversal,
   TypeDeclTraversal as BindingTypeDeclTraversal
 }
+import io.shiftleft.semanticcpg.dependencyJsonGenerator.DependencyJsonGenerator
 import io.shiftleft.semanticcpg.language.callgraphextension.{CallTraversal, MethodTraversal}
 import io.shiftleft.semanticcpg.language.dotextension.{AstNodeDot, CfgNodeDot, InterproceduralNodeDot}
 import io.shiftleft.semanticcpg.language.nodemethods.*
@@ -52,6 +53,9 @@ package object language
   implicit def toLiteralMethods(node: Literal): LiteralMethods          = new LiteralMethods(node)
   implicit def toLocalMethods(node: Local): LocalMethods                = new LocalMethods(node)
   implicit def toMethodRefMethods(node: MethodRef): MethodRefMethods    = new MethodRefMethods(node)
+
+  //self added
+  implicit def toDependencyJsonGenerator(node : Method): DependencyJsonGenerator = new DependencyJsonGenerator(node)
 
   // Implicit conversions from Step[NodeType, Label] to corresponding Step classes.
   // If you introduce a new Step-type, that is, one that inherits from `Steps[NodeType]`,
@@ -268,6 +272,7 @@ package object language
 
   implicit def toExpression[A <: Expression](a: IterableOnce[A]): ExpressionTraversal[A] =
     new ExpressionTraversal[A](a.iterator)
+
 }
 
 trait LowPrioImplicits extends overflowdb.traversal.Implicits {
