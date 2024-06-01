@@ -35,7 +35,7 @@ object JoernExport {
   /** Choose from either a subset of the graph, or the entire graph (all).
     */
   object Representation extends Enumeration {
-    val Ast, Cfg, Ddg, Cdg, Pdg, Cpg14, Cpg, All = Value
+    val Ast, Cfg, Ddg, Cdg, Pdg, Cpg14, Cpg, All, Dependency = Value
 
     lazy val byNameLowercase: Map[String, Value] =
       values.map { value =>
@@ -47,7 +47,7 @@ object JoernExport {
 
   }
   object Format extends Enumeration {
-    val Dot, Neo4jCsv, Graphml, Graphson = Value
+    val Dot, Neo4jCsv, Graphml, Graphson, Json = Value
 
     lazy val byNameLowercase: Map[String, Value] =
       values.map { value =>
@@ -104,6 +104,8 @@ object JoernExport {
     val context = new LayerCreatorContext(cpg)
 
     format match {
+      case Format.Json if representation == Representation.Dependency =>
+        exportJson(representation, outDir, context)
       case Format.Dot if representation == Representation.All || representation == Representation.Cpg =>
         exportWithOdbFormat(cpg, representation, outDir, DotExporter)
       case Format.Dot =>
@@ -116,6 +118,15 @@ object JoernExport {
         exportWithOdbFormat(cpg, representation, outDir, GraphSONExporter)
       case other =>
         throw new NotImplementedError(s"repr=$representation not yet supported for format=$format")
+    }
+  }
+
+  private def exportJson(repr: Representation.Value, outDir: Path, context: LayerCreatorContext): Unit = {
+    val outDirStr = outDir.toString
+    import Representation._
+    repr match {
+      case Dependency => new DumpDependency(DependencyDumpOptions(outDirStr)).create(context)
+      case other => throw new NotImplementedError(s"repr=$repr not yet supported for this format")
     }
   }
 
@@ -142,6 +153,7 @@ object JoernExport {
     val ExportResult(nodeCount, edgeCount, _, additionalInfo) = repr match {
       case Representation.All =>
         exporter.runExport(cpg.graph, outDir)
+      case Representation.Dependency =>
       case Representation.Cpg =>
         if (cpg.graph.nodeCount(NodeTypes.METHOD) > 0) {
           val windowsFilenameDeduplicationHelper = mutable.Set.empty[String]

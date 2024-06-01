@@ -3,6 +3,8 @@ name := "joern-cli"
 dependsOn(Projects.console, Projects.console % "test->test", Projects.dataflowengineoss, Projects.x2cpg)
 
 libraryDependencies ++= Seq(
+  "org.json4s"           %% "json4s-native"     % Versions.json4s,
+  "org.json4s" %% "json4s-jackson" % Versions.json4s,
   "io.shiftleft"     %% "codepropertygraph" % Versions.cpg,
   "com.lihaoyi"      %% "requests"          % Versions.requests,
   "com.github.scopt" %% "scopt"             % "4.1.0",
