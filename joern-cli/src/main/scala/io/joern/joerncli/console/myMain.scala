@@ -17,8 +17,7 @@ import io.shiftleft.semanticcpg.Overlays
 object myMain {
 
   def main(args: Array[String]): Unit = {
-
-    val console = new JoernConsole();
+    val console = new JoernConsole()
     val cpg = console.loadCpg(args(0)).get
     val re = DependencyJsonGenerator(cpg.method.name("GenerateProblem_ref").last).dependencyJson(cpg.method.name("GenerateProblem_ref").last)
     re
