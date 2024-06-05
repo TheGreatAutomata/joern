@@ -13,6 +13,7 @@ import org.json4s.JsonDSL.*
 import overflowdb.*
 import overflowdb.traversal.*
 import io.shiftleft.semanticcpg.language.operatorextension.*
+import io.shiftleft.semanticcpg.other.UsefullNodeEdgeSet._
 
 class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
 //todo：没有填写的字段:
@@ -125,23 +126,39 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
       //处理pointerAssignments
       val pointerAssignmentsJson = pointerAssignments.map(getPointerAssignmentsLeftJson)
 
-    //todo
-      //对要赋值语句的右值开始处理，先找到再递归
+      //遍历右值的reachingDef，找到其中所有alloc
+      val reachingDefLoc = pointerAssignments.astChildren.order(2)._reachingDefIn.collectAll[AstNode]
+      val validLoc1 = reachingDefLoc.astParent.filter(xP => {
+        xP.isCall && allAssignmentTypes.contains(xP.asInstanceOf[Call].name)
+      })
+    val validLoc2 = validLoc1.filter(x => {
+      val rL = x.astChildren.order(2).headOption.orNull
+      //todo:这里可能被类型转换打断？
+      rL!=null && rL.isCall && allAllocTypes.contains(rL.asInstanceOf[Call].name)
+    }).collectAll[Call]
+    //validLoc2即为要加入json的右侧带alloc的赋值操作
+    val allocJson = validLoc2.map(getPointerAssignmentsAllocTrueLeftJson)
       
-      JArray(pointerAssignmentsJson)
+      JArray(pointerAssignmentsJson ++ allocJson)
+  }
+
+  def getPointerAssignmentsLeftJsonHelper(call: Call): JObject={
+    val code = call.code
+    val line: Long = call.lineNumber.getOrElse(java.lang.Integer((-1))).longValue()
+    val uri = call.method.filename
+    val variable = getLeftValueCode(call)
+    ("code" -> code) ~
+      ("line" -> line) ~
+      ("uri" -> uri) ~
+      ("variable" -> variable)
   }
 
   def getPointerAssignmentsLeftJson(call: Call): JObject = {
-    val code = call.code
-    val is_malloc = isRightValueMalloc(call)
-    val line:Long = call.lineNumber.getOrElse(java.lang.Integer((-1))).longValue()
-    val uri = call.method.filename
-    val variable = getLeftValueCode(call)
-    ("code"->code)~
-      ("is_malloc"->is_malloc)~
-      ("line"->line)~
-      ("uri"->uri)~
-      ("variable"->variable)
+      getPointerAssignmentsLeftJsonHelper(call)~("is_malloc" -> isRightValueMalloc(call))
+  }
+
+  def getPointerAssignmentsAllocTrueLeftJson(call: Call): JObject = {
+    getPointerAssignmentsLeftJsonHelper(call) ~ ("is_malloc" -> true)
   }
 
   def getLeftValueCode(call: Call):String = {
@@ -152,21 +169,27 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     call.astChildren.order(2).ast.collectAll[Call].name.exists(x => allAllocTypes.contains(x))
   }
 
-  def getTypeDecl(typ: Type): TypeDecl = {
+  def searchThrowType(typ:Type, edges:Array[String]):Type={
+    if(typ==null)return null
     //走到不能再走
     if(Iterator.single(typ).exists(x =>
-      x.out(EdgeTypes.POINTER_OF, EdgeTypes.ARRAY_OF, EdgeTypes.L_REFERENCE_OF, EdgeTypes.R_REFERENCE_OF, EdgeTypes.SPECIALIZE_OF).isEmpty))
-      return typ._refOut.collectAll[TypeDecl].headOption.orNull
-    
+      x.out(edges:_*).isEmpty))
+      return typ
+
     Iterator.single(typ).
       repeat(
-        _.out(EdgeTypes.POINTER_OF, EdgeTypes.ARRAY_OF, EdgeTypes.L_REFERENCE_OF, EdgeTypes.R_REFERENCE_OF, EdgeTypes.SPECIALIZE_OF))(
+        _.out(edges:_*))(
         _.until(_.filter(x =>
-          x.out(EdgeTypes.POINTER_OF, EdgeTypes.ARRAY_OF, EdgeTypes.L_REFERENCE_OF, EdgeTypes.R_REFERENCE_OF, EdgeTypes.SPECIALIZE_OF).isEmpty)
-        )).collectAll[Type]._refOut.collectAll[TypeDecl].headOption.orNull
+          x.out(edges:_*).isEmpty)
+        )).collectAll[Type].headOption.orNull
   }
 
-  def getTypeInfo(typeDecl: TypeDecl): JObject = {
+  def getTypeInfoTypeDeclPart(typeDecl: TypeDecl): JObject = {
+    if(typeDecl==null){
+      ("base_type_id"->"")~
+        ("index_in_base"-> -1)~
+        ("filename"->"")
+    }
     val filename = typeDecl.filename
     val kind = ""
     val size:Long = -1
@@ -184,36 +207,25 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
         ("type_name"->type_name)
     ))
   }
-
-  def getTypeInfoAndNameHelper(astNode: AstNode): JObject = {
-    val typ = astNode._evalTypeOut.collectAll[Type].headOption.orNull
-    if(typ != null){
-      val typeDecl = getTypeDecl(typ)
-      if (typeDecl != null) {
-        return getTypeInfo(typeDecl)
-      }
-    }
-    ("type_info" -> (
-      ("filename" -> "") ~
-        ("kind" -> "") ~
-        ("size" -> -1) ~
-        ("source_beg_line" -> -1) ~
-        ("source_end_line" -> -1) ~
-        ("type_id" -> -1) ~
-        ("type_name" -> "")
-      ))
-  }
   
   def getTypeInfoAndName(identifier: Identifier): JObject = {
-    val name = identifier.name
-    val type_info = getTypeInfoAndNameHelper(identifier)
-    ("name"->name) ~ type_info
+    val typ = identifier._evalTypeOut.collectAll[Type].headOption.orNull
+    ("name"->identifier.name) ~ addTypeInfoTitle(getTypeInfo(typ))
   }
 
   def getTypeInfoAndName(call: Call): JObject = {
-    val name = call.code
-    val type_info = getTypeInfoAndNameHelper(call)
-    ("name" -> name) ~ type_info
+    val typ = call._evalTypeOut.collectAll[Type].headOption.orNull
+    ("name" -> call.code) ~ addTypeInfoTitle(getTypeInfo(typ)~getTypeInfoAddition(call))
+  }
+
+  def getTypeInfoAddition(call:Call):JObject={
+    val member = call._refOut.collectAll[Member].headOption.orNull
+    val memberTypeDecl = Iterator.single(member.astParent).collectAll[TypeDecl].headOption.orNull
+    val base_type_id:Long = if(memberTypeDecl==null) -1 else memberTypeDecl.id()
+    //todo:补完
+    ("base_type_id" -> base_type_id)~
+      ("index_in_base"-> -1)~
+      ("offset_in_base"-> -1)
   }
   
   def getAttributes(astNode: List[AstNode]): JObject = {
@@ -325,16 +337,117 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
   }
 
   def getParameterListJson(parameter: MethodParameterIn): JObject = {
-    //data_type*
-    //name*
-    //size
-    val data_type = parameter.typeFullName
+    val paraType = parameter._evalTypeOut.collectAll[Type].headOption.orNull
     val name = parameter.name
-    ("data_type" -> data_type)~ 
-      ("name" -> name)~
-      ("size" -> -1)~
-      ("typeIid" -> parameter.id())
-    
+    ("name"->name)~addTypeInfoTitle(getTypeInfo(paraType))
   }
 
+  //offset_in_base、index_in_base要另外填写
+  //存在疑问的：source_beg_line、source_end_line
+  /*
+  可以根据当前type《type1》得出的：
+  kind：pointer、array、左右引用，只考察第一层
+  size：当前type的大小，本来的
+
+  需要根据当前type去掉指针、array、引用后的type《type2》得出的：
+  type_name：
+
+  需要将type2去掉所有别名、引用、特化、pinter、array得到的type《type3》得出的
+  type_alias_name：
+
+  需要将type3的typeDecl得出的：
+  type_id：typeDecl的id
+  filename：typeDecl所在的位置
+  source_beg_line：typeDecl的范围
+  source_end_line：typeDecl的范围
+
+  如果是memberAccess，需要找到基类typeDecl得出的
+  base_type_id：基类的id
+  index_in_base：基类中的第几个
+  offset_in_base：基类中的地址开始
+   */
+  def getTypeInfo(theType: Type): JObject = {
+    val oriTypeJson = getTypeInfoForOriType(theType)
+    val typeThrowPointerArrayReference =
+      searchThrowType(theType, SearchEdgeForRemovePointerArrayReference)
+    val throwPointerArrayReferenceTypeJson =
+      getTypeInfoForTypeThrowPointerArrayReference(typeThrowPointerArrayReference)
+    val myTypeDeclType =
+      searchThrowType(typeThrowPointerArrayReference,
+        SearchEdgeForRemovePointerArrayReferenceAliasSpecialize)
+    val typeDeclTypeJson =
+      getTypeInfoForTypeDeclType(myTypeDeclType, typeThrowPointerArrayReference)
+    val myTypeDecl = getDirectlyTypeDecl(myTypeDeclType)
+    val myTypeDeclJson = getTypeInfoForTypeDecl(myTypeDecl)
+    oriTypeJson~throwPointerArrayReferenceTypeJson~typeDeclTypeJson~myTypeDeclJson
+  }
+
+  def addTypeInfoTitle(j:JObject):JObject={
+    ("type_info"->j)
+  }
+
+  def getTypeInfoForTypeDecl(myTypeDecl:TypeDecl):JObject={
+    if(myTypeDecl==null){
+      ("type_id"-> -1)~
+        ("filename" -> "") ~
+        ("source_beg_line"-> -1)~
+        ("source_end_line"-> -1)
+    }else{
+      val source_beg_line:Long = myTypeDecl.lineNumber.getOrElse(java.lang.Integer(-1)).longValue()
+      //todo:补完
+      val source_end_line:Long = -1
+      ("type_id" -> myTypeDecl.id()) ~
+        ("filename" -> myTypeDecl.filename) ~
+        ("source_beg_line" -> source_beg_line) ~
+        ("source_end_line" -> source_end_line)
+    }
+  }
+
+  def getDirectlyTypeDecl(theType:Type):TypeDecl={
+    if(theType==null) return null
+    theType._refOut.collectAll[TypeDecl].headOption.orNull
+  }
+
+  def getTypeInfoForTypeDeclType(theType:Type, beforeType:Type):JObject={
+    if(theType==null||beforeType==null){
+      ("type_alias_name"->"")
+    }else{
+      //todo：泛型在这里应该会丢掉实例化，需要修复
+      val theValue = theType.name
+      val va = if(theValue==beforeType.name) "" else theValue
+      ("type_alias_name"->va)
+    }
+  }
+
+  def getTypeInfoForTypeThrowPointerArrayReference(theType:Type):JObject = {
+    if(theType==null){
+      ("type_name"->"")
+    }else{
+      //todo：泛型在这里应该会丢掉实例化，需要修复
+      ("type_name" -> theType.name)
+    }
+  }
+
+  def getTypeInfoForOriType(theType:Type):JObject={
+    if(theType==null){
+      ("kind"->"")~
+        ("size"-> -1)
+    }else{
+      ("kind"->getTypeInfoKind(theType))~
+      //todo:补全
+        ("size"-> -1)
+    }
+  }
+
+  def getTypeInfoKind(theType:Type):String={
+    val isPointer = theType._pointerOfOut.nonEmpty
+    if(isPointer) return "Pointer"
+    val isArray = theType._arrayOfOut.nonEmpty
+    if(isArray) return "Array"
+    val isLR = theType._lReferenceOfOut.nonEmpty
+    if(isLR) return "LValueReference"
+    val isRR = theType._rReferenceOfOut.nonEmpty
+    if(isRR) return "RValueReference"
+    "Elaborated"
+  }
 }

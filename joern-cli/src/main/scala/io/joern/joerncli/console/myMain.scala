@@ -1,13 +1,14 @@
 package io.joern.joerncli.console
 
-import org.json4s._
-import org.json4s.jackson.JsonMethods._
+import io.joern.dataflowengineoss.dotgenerator.DotDdgGenerator
+import org.json4s.*
+import org.json4s.jackson.JsonMethods.*
 import org.json4s.jackson.Serialization
 import org.json4s.jackson.Serialization.write
-import org.json4s.JsonDSL._
+import org.json4s.JsonDSL.*
 import io.shiftleft.codepropertygraph.Cpg
-import io.shiftleft.semanticcpg.language._
-import io.shiftleft.semanticcpg.layers._
+import io.shiftleft.semanticcpg.language.*
+import io.shiftleft.semanticcpg.layers.*
 import io.shiftleft.semanticcpg.dependencyJsonGenerator.DependencyJsonGenerator
 import io.shiftleft.SerializedCpg
 import io.shiftleft.codepropertygraph.Cpg
@@ -20,6 +21,7 @@ object myMain {
     val console = new JoernConsole()
     val cpg = console.loadCpg(args(0)).get
     val re = DependencyJsonGenerator(cpg.method.name("GenerateProblem_ref").last).dependencyJson(cpg.method.name("GenerateProblem_ref").last)
+//    val re = DotDdgGenerator.toDotDdg(cpg.method.name("GenerateProblem_ref").last)
     re
   }
 
