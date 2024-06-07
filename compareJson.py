@@ -23,10 +23,14 @@ def find_matches(dir1, dir2):
             matches[functionName]['dir2'].append(os.path.join(dir2, file))
     return matches
 
-def compare_elements(list1, list2, key):
+def compare_elements(list1, list2, key, key2=None):
     # Creating maps based on key for both lists
-    map1 = {item[key]: item for item in list1}
-    map2 = {item[key]: item for item in list2}
+    if key2 is None:
+        map1 = {item[key]: item for item in list1}
+        map2 = {item[key]: item for item in list2}
+    else:
+        map1 = {item[key]+"-"+str(item[key2]): item for item in list1}
+        map2 = {item[key]+"-"+str(item[key2]): item for item in list2}
     common_keys = set(map1.keys()) & set(map2.keys())
     differences = []
     for k in common_keys:
@@ -58,13 +62,14 @@ def compare_json(json1, json2, template, functionName=None):
                 differences.append(key)
         elif isinstance(value, list) and value and isinstance(value[0], dict):
             key_field = 'code' if key == 'reference' else 'name'
+            key_field2 = 'line' if key == 'reference' else None
             if json1.get(key) and json2.get(key):
-                list_diffs = compare_elements(json1[key], json2[key], key_field)
+                list_diffs = compare_elements(json1[key], json2[key], key_field, key_field2)
                 if list_diffs:
                     differences.extend([f"{key}.{diff}" for diff in list_diffs])
         else:
             if json1.get(key, value) != json2.get(key, value):
-                differences.append(key)
+                differences.append(f"{key}(should: {json1.get(key, value)}, but: {json2.get(key, value)})")
     return differences
 
 def process_comparison(matches, template):
