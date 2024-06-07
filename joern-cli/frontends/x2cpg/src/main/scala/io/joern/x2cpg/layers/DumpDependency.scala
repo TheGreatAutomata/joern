@@ -22,8 +22,8 @@ class DumpDependency(options: DependencyDumpOptions) extends LayerCreator {
 
   override def create(context: LayerCreatorContext, storeUndoInfo: Boolean): Unit = {
     val cpg = context.cpg
-    cpg.method.zipWithIndex.foreach { case (method, i) =>
-      if(method.block.astChildren.nonEmpty && !method.isExternal)
+    cpg.method.isExternal(false).zipWithIndex.foreach { case (method, i) =>
+      if(method.block.astChildren.nonEmpty)
         {
           val name = method.name +s"-$i"
           val str = method.dependencyJson.head

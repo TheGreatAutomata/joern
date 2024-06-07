@@ -16,9 +16,6 @@ import io.shiftleft.semanticcpg.language.operatorextension.*
 import io.shiftleft.semanticcpg.other.UsefullNodeEdgeSet._
 
 class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
-//todo：没有填写的字段:
-//param_variable::type_info::kind,size,source_end_line
-//references 
 
   def dependencyJson: Iterator[String] = traversal.map(dependencyJson)
 
@@ -77,7 +74,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     val paraIdentifiers = parameters._refIn.collectAll[Identifier].l
     val paraVariableJson = getVariableJson(paraIdentifiers)
 
-    //references*
+    //reference*
     val referenceJson = getReferencesJson(globalIdentifiers ++ paraIdentifiers)
 
     //start_line*
@@ -89,18 +86,19 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     val reJson =
       (
         method.fullName ->
-          ("end_len" -> end_len) ~
+          ("source_end_line" -> end_len) ~
             ("global_variable" -> globalVariableJson) ~
             ("param_list" -> paramListJson) ~
             ("param_variable" -> paraVariableJson) ~
-            ("references" -> referenceJson)~
-            ("start_line" -> start_line) ~
-            ("uri" -> uri)
+            ("reference" -> referenceJson)~
+            ("source_beg_line" -> start_line) ~
+            ("filename" -> uri)
         )
     val jsonString = pretty(render(reJson))
     jsonString
   }
 
+  //todo：要考虑右值是全局变量且存在初始化的情况（尽在右边没有reachingDef的出边，或者出边指向的位置没有对local直接、解地址的赋值时）
   def getReferencesJson(astNode: List[AstNode]): JArray = {
 
     val pointerAssignments = astNode.repeat(_.in(EdgeTypes.AST))(_.emit.until(_.or(_.hasLabel(NodeTypes.METHOD), _.hasLabel(NodeTypes.NAMESPACE_BLOCK))))
@@ -111,7 +109,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
             xT._pointerOfOut.nonEmpty || xT._arrayOfOut.nonEmpty || {
               Iterator.single(xT).repeat(
                 _.out(EdgeTypes.L_REFERENCE_OF, EdgeTypes.R_REFERENCE_OF))(
-                _.until(_.collectAll[Type].or(_._pointerOfOut, _._arrayOfOut))
+                _.until(_.collectAll[Type].or(_.or(_._pointerOfOut, _._arrayOfOut), _.id(xT.id())))
               ).nonEmpty
             }
           }
@@ -149,7 +147,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     val variable = getLeftValueCode(call)
     ("code" -> code) ~
       ("line" -> line) ~
-      ("uri" -> uri) ~
+      ("filename" -> uri) ~
       ("variable" -> variable)
   }
 
@@ -180,7 +178,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
       repeat(
         _.out(edges:_*))(
         _.until(_.filter(x =>
-          x.out(edges:_*).isEmpty)
+          x.id() == typ.id() || x.out(edges:_*).isEmpty)
         )).collectAll[Type].headOption.orNull
   }
 
@@ -222,10 +220,11 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     val member = call._refOut.collectAll[Member].headOption.orNull
     val memberTypeDecl = Iterator.single(member.astParent).collectAll[TypeDecl].headOption.orNull
     val base_type_id:Long = if(memberTypeDecl==null) -1 else memberTypeDecl.id()
-    //todo:补完
+    val index_in_base:Long = if(member==null) -1 else member.order
+    val offset_in_base:Long = if(member==null) -1 else member.memberOffset
     ("base_type_id" -> base_type_id)~
-      ("index_in_base"-> -1)~
-      ("offset_in_base"-> -1)
+      ("index_in_base"-> index_in_base)~
+      ("offset_in_base"-> offset_in_base)
   }
   
   def getAttributes(astNode: List[AstNode]): JObject = {
@@ -233,7 +232,6 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
       case Some(identifier) =>
         true
       case None =>
-        //todo：这里考察一些不直接在左值的情况，如被被解引用、index操作包括之后再放到左值上
         false
     }
     val used_in_branch = astNode.find(isInCondition) match {
@@ -352,8 +350,11 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
   需要根据当前type去掉指针、array、引用后的type《type2》得出的：
   type_name：
 
+  将type2试图寻找别名得出的：
+  type_alias_name
+
   需要将type2去掉所有别名、引用、特化、pinter、array得到的type《type3》得出的
-  type_alias_name：
+  ：
 
   需要将type3的typeDecl得出的：
   type_id：typeDecl的id
@@ -375,11 +376,24 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     val myTypeDeclType =
       searchThrowType(typeThrowPointerArrayReference,
         SearchEdgeForRemovePointerArrayReferenceAliasSpecialize)
-    val typeDeclTypeJson =
-      getTypeInfoForTypeDeclType(myTypeDeclType, typeThrowPointerArrayReference)
+    val typeAliasJson =getTypeInfoForTypeAlias(typeThrowPointerArrayReference)
+//      getTypeInfoForTypeDeclType(myTypeDeclType, typeThrowPointerArrayReference)
     val myTypeDecl = getDirectlyTypeDecl(myTypeDeclType)
     val myTypeDeclJson = getTypeInfoForTypeDecl(myTypeDecl)
-    oriTypeJson~throwPointerArrayReferenceTypeJson~typeDeclTypeJson~myTypeDeclJson
+    oriTypeJson~throwPointerArrayReferenceTypeJson~typeAliasJson~myTypeDeclJson
+  }
+
+  def getTypeInfoForTypeAlias(typ:Type):JObject={
+    if(typ==null){
+      ("type_alias_name"->"")
+    }else{
+      val aT = typ._aliasOfOut.collectAll[Type].headOption.orNull
+      if(aT==null){
+        ("type_alias_name"->"")
+      }else{
+        ("type_alias_name"->aT.fullName)
+      }
+    }
   }
 
   def addTypeInfoTitle(j:JObject):JObject={
@@ -408,23 +422,25 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     theType._refOut.collectAll[TypeDecl].headOption.orNull
   }
 
-  def getTypeInfoForTypeDeclType(theType:Type, beforeType:Type):JObject={
-    if(theType==null||beforeType==null){
-      ("type_alias_name"->"")
-    }else{
-      //todo：泛型在这里应该会丢掉实例化，需要修复
-      val theValue = theType.name
-      val va = if(theValue==beforeType.name) "" else theValue
-      ("type_alias_name"->va)
-    }
-  }
+//  def getTypeInfoForTypeDeclType(theType:Type, beforeType:Type):JObject={
+//    if(theType==null||beforeType==null){
+//      ("type_alias_name"->"")
+//    }else{
+//      val theValue = theType.fullName
+//      val va = if(theValue==beforeType.fullName) "" else theValue
+//      ("type_alias_name"->va)
+//    }
+//  }
 
   def getTypeInfoForTypeThrowPointerArrayReference(theType:Type):JObject = {
     if(theType==null){
       ("type_name"->"")
     }else{
-      //todo：泛型在这里应该会丢掉实例化，需要修复
-      ("type_name" -> theType.name)
+      if (theType.fullName=="GlobalToLocalMap"){
+        val a = 1;
+      }
+        
+      ("type_name" -> theType.fullName)
     }
   }
 
@@ -434,8 +450,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
         ("size"-> -1)
     }else{
       ("kind"->getTypeInfoKind(theType))~
-      //todo:补全
-        ("size"-> -1)
+        ("size"-> theType.typeSize)
     }
   }
 

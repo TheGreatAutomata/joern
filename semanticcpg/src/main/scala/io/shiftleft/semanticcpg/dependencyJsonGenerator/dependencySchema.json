@@ -1,0 +1,57 @@
+{
+  "functionName": {
+    "source_end_line": -1,
+    "source_beg_line": -1,
+    "filename": "",
+    "param_list": [
+      {
+        "name": "",
+        "type_info":{
+          "kind": "",
+          "size": -1,
+          "type_name": "",
+          "type_alias_name": "",
+          "type_id": "",
+          "filename": "",
+          "source_beg_line": -1,
+          "source_end_line": -1,
+          "base_type_id": -1,
+          "index_in_base": -1,
+          "offset_in_base": -1
+        }
+      }
+    ],
+    "param_variable": [
+      {
+        "attributes": {
+          "is_modified": true,
+          "used_in_branch": true,
+          "used_in_index": true
+        },
+        "name": "",
+        "type_info":{
+          "kind": "",
+          "size": -1,
+          "type_name": "",
+          "type_alias_name": "",
+          "type_id": "",
+          "filename": "",
+          "source_beg_line": -1,
+          "source_end_line": -1,
+          "base_type_id": -1,
+          "index_in_base": -1,
+          "offset_in_base": -1
+        }
+      }
+    ],
+    "reference": [
+      {
+        "code": "",
+        "line": -1,
+        "filename": "",
+        "variable": "",
+        "is_malloc": true
+      }
+    ]
+  }
+}

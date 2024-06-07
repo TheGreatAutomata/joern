@@ -1,0 +1,1 @@
+./joern-export --repr=dependency --format=json --out=myWorkspace/out1 workspace/zipOut.zip5/cpg.bin
