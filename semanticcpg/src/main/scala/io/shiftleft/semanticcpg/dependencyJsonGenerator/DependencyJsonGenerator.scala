@@ -439,7 +439,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
       if (theType.fullName=="GlobalToLocalMap"){
         val a = 1;
       }
-        
+
       ("type_name" -> theType.fullName)
     }
   }
