@@ -18,6 +18,10 @@ cfg-for-funcs.json
 pdg-for-funcs.json
 joern-cli/workspace
 /workspace
+joernTarget.tar.gz
+joernTarget
+joernTarget.zip
+myWorkspace
 null
 /gnupg-*
 /joern-cli/${sys:LOG_DIR}/
