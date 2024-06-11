@@ -51,6 +51,17 @@ def extract_cpp_identifier(s):
     # 如果不是限定符或修饰符，返回原字符串
     return s
 
+def extract_after_last_slash(s):
+    # 找到最后一个斜杠的位置
+    last_slash_index = s.rfind('/')
+
+    # 如果找到斜杠，返回斜杠之后的部分
+    if last_slash_index != -1:
+        return s[last_slash_index + 1:]
+
+    # 如果没有斜杠，返回整个字符串
+    return s
+
 def compare_elements(list1, list2, key, key2=None):
     # Creating maps based on key for both lists
     if key2 is None:
@@ -77,7 +88,7 @@ def compare_elements(list1, list2, key, key2=None):
 def compare_json(json1, json2, template, functionName=None):
     differences = []
     for key, value in template.items():
-        if key in ["filename", "source_end_line", "type_id", "base_type_id", "code"]:
+        if key in ["source_end_line", "type_id", "base_type_id", "code"]:
             continue  # Skip comparing these fields
         if key == "functionName":
             key = functionName
@@ -108,7 +119,9 @@ def compare_json(json1, json2, template, functionName=None):
                         value2 = extract_cpp_identifier(value2)
                         if value1 != value2:
                             differences.append(f"{key}(should: {json1.get(key, value)}, but: {json2.get(key, value)})")
-
+        elif key == "filename":
+            if extract_after_last_slash(json1.get(key, value)) != extract_after_last_slash(json2.get(key, value)):
+                differences.append(f"{key}(should: {json1.get(key, value)}, but: {json2.get(key, value)})")
         else:
             if json1.get(key, value) != json2.get(key, value):
                 differences.append(f"{key}(should: {json1.get(key, value)}, but: {json2.get(key, value)})")
