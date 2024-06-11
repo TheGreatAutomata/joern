@@ -440,7 +440,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     val isRR = theType._rReferenceOfOut.nonEmpty
     if(isRR) return "RValueReference"
     val filename = theType._refOut.collectAll[TypeDecl].filename.headOption.getOrElse("")
-    if(filename=="<build-in>" || filename == "<built-in>") return "BuildIn"
+    if(filename=="<build-in>" || filename == "<built-in>") return "Builtin"
     "Elaborated"
   }
 }
