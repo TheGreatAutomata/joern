@@ -220,7 +220,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     val member = call._refOut.collectAll[Member].headOption.orNull
     val memberTypeDecl = Iterator.single(member.astParent).collectAll[TypeDecl].headOption.orNull
     val base_type_id:Long = if(memberTypeDecl==null) -1 else memberTypeDecl.id()
-    val index_in_base:Long = if(member==null) -1 else member.order
+    val index_in_base:Long = if(member==null) -1 else (member.order-1)
     val offset_in_base:Long = if(member==null) -1 else member.memberOffset
     ("base_type_id" -> base_type_id)~
       ("index_in_base"-> index_in_base)~
