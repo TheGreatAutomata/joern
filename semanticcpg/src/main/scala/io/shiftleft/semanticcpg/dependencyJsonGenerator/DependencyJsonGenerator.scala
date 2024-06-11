@@ -181,30 +181,6 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
           x.id() == typ.id() || x.out(edges:_*).isEmpty)
         )).collectAll[Type].headOption.orNull
   }
-
-  def getTypeInfoTypeDeclPart(typeDecl: TypeDecl): JObject = {
-    if(typeDecl==null){
-      ("base_type_id"->"")~
-        ("index_in_base"-> -1)~
-        ("filename"->"")
-    }
-    val filename = typeDecl.filename
-    val kind = ""
-    val size:Long = -1
-    val source_beg_line:Long = typeDecl.lineNumber.map(_.longValue()).getOrElse(-1)
-    val source_end_line:Long = -1
-    val type_id:Long = typeDecl.id()
-    val type_name = typeDecl.fullName
-    ("type_info"->(
-      ("filename"->filename)~
-        ("kind"->kind)~
-        ("size"->size)~
-        ("source_beg_line"->source_beg_line)~
-        ("source_end_line"->source_end_line)~
-        ("type_id"->type_id)~
-        ("type_name"->type_name)
-    ))
-  }
   
   def getTypeInfoAndName(identifier: Identifier): JObject = {
     val typ = identifier._evalTypeOut.collectAll[Type].headOption.orNull
@@ -463,6 +439,8 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     if(isLR) return "LValueReference"
     val isRR = theType._rReferenceOfOut.nonEmpty
     if(isRR) return "RValueReference"
+    val filename = theType._refOut.collectAll[TypeDecl].filename.headOption.getOrElse("")
+    if(filename=="<build-in>" || filename == "<built-in>") return "BuildIn"
     "Elaborated"
   }
 }

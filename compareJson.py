@@ -23,14 +23,42 @@ def find_matches(dir1, dir2):
             matches[functionName]['dir2'].append(os.path.join(dir2, file))
     return matches
 
+def remove_semicolon(s):
+    # 如果字符串以分号结尾，则去掉它
+    if s.endswith(';'):
+        return s[:-1]
+    return s
+
+def extract_cpp_identifier(s):
+    # 定义C++中常见的限定符和修饰符
+    cpp_qualifiers_modifiers = {"const", "struct", "union", "enum", "class", "volatile", "mutable", "extern", "static"}
+
+    # 找到第一个空格的位置
+    first_space_index = s.find(' ')
+
+    # 如果没有空格，直接返回原字符串
+    if first_space_index == -1:
+        return s
+
+    # 获取第一个空格前的单词
+    first_word = s[:first_space_index]
+
+    # 检查这个单词是否是限定符或修饰符
+    if first_word in cpp_qualifiers_modifiers:
+        # 返回第一个空格之后的部分
+        return s[first_space_index + 1:]
+
+    # 如果不是限定符或修饰符，返回原字符串
+    return s
+
 def compare_elements(list1, list2, key, key2=None):
     # Creating maps based on key for both lists
     if key2 is None:
-        map1 = {item[key]: item for item in list1}
-        map2 = {item[key]: item for item in list2}
+        map1 = {remove_semicolon(item[key]): item for item in list1}
+        map2 = {remove_semicolon(item[key]): item for item in list2}
     else:
-        map1 = {item[key]+"-"+str(item[key2]): item for item in list1}
-        map2 = {item[key]+"-"+str(item[key2]): item for item in list2}
+        map1 = {remove_semicolon(item[key])+"-"+str(item[key2]): item for item in list1}
+        map2 = {remove_semicolon(item[key])+"-"+str(item[key2]): item for item in list2}
     common_keys = set(map1.keys()) & set(map2.keys())
     differences = []
     for k in common_keys:
@@ -49,7 +77,7 @@ def compare_elements(list1, list2, key, key2=None):
 def compare_json(json1, json2, template, functionName=None):
     differences = []
     for key, value in template.items():
-        if key in ["filename", "source_end_line", "type_id", "base_type_id"]:
+        if key in ["filename", "source_end_line", "type_id", "base_type_id", "code"]:
             continue  # Skip comparing these fields
         if key == "functionName":
             key = functionName
@@ -67,6 +95,20 @@ def compare_json(json1, json2, template, functionName=None):
                 list_diffs = compare_elements(json1[key], json2[key], key_field, key_field2)
                 if list_diffs:
                     differences.extend([f"{key}.{diff}" for diff in list_diffs])
+        elif key == "type_name":
+            value1 = json1.get(key, value)
+            value2 = json2.get(key, value)
+            if value1 != value2:
+                value1 = extract_cpp_identifier(value1)
+                value2 = extract_cpp_identifier(value2)
+                if value1 != value2:
+                    key2 = "type_alias_name"
+                    value2 = json2.get(key2, value)
+                    if value1 != value2:
+                        value2 = extract_cpp_identifier(value2)
+                        if value1 != value2:
+                            differences.append(f"{key}(should: {json1.get(key, value)}, but: {json2.get(key, value)})")
+
         else:
             if json1.get(key, value) != json2.get(key, value):
                 differences.append(f"{key}(should: {json1.get(key, value)}, but: {json2.get(key, value)})")

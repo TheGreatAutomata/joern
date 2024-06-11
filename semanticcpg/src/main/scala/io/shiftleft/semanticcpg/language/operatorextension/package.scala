@@ -48,6 +48,10 @@ package object operatorextension {
     Operators.modulo
   ) ++ assignmentAndArithmetic
 
+  val additionAccessTypes: Set[String] = Set(
+    "operator[]"
+  )
+
   /** All operators representing array accesses.
     */
   val allArrayAccessTypes: Set[String] = Set(
@@ -55,7 +59,7 @@ package object operatorextension {
     Operators.indirectComputedMemberAccess,
     Operators.indexAccess,
     Operators.indirectIndexAccess
-  )
+  ) ++ additionAccessTypes
 
   /** All operators representing direct or indirect accesses to fields of data structures
     */
