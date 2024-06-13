@@ -26,7 +26,9 @@ class DumpDependency(options: DependencyDumpOptions) extends LayerCreator {
       if(method.block.astChildren.nonEmpty)
         {
           val name = method.fullName +s"-$i"
-          val str = method.dependencyJson.head
+          var str = method.dependencyJson.head
+          if(str.length > 254) str = method.name+s"-tooLong-$i"
+          if(str.length > 254) str = s"tooLong-$i"
           (File(options.outDir) / s"$name-dependency.json").write(str)
         }
     }

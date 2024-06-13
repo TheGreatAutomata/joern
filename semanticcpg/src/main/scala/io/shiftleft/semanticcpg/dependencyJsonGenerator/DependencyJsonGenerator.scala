@@ -151,6 +151,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
       //要求回找找到的点直接在左值且在赋值操作下
       val candidateReachingDefs = candidateIdentifier._reachingDefIn.collectAll[Expression].order(1)
         .astParent.filter(xP => {
+          //这里也要求，如果左边的类型不是指针的话，
           xP.isCall && allAssignmentTypes.contains(xP.asInstanceOf[Call].name)
         }).collectAll[Call].l
       val distinctCandidate = candidateReachingDefs.filterNot(x => hashSet.contains(x.id())).l
