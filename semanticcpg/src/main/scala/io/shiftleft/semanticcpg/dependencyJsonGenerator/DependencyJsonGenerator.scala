@@ -4,7 +4,7 @@ import io.shiftleft.semanticcpg.language.operatorextension.nodemethods.OpAstNode
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.operatorextension.OpAstNodeTraversal
 import io.shiftleft.codepropertygraph.generated.{EdgeTypes, NodeTypes}
-import io.shiftleft.codepropertygraph.generated.nodes.{AstNode, Call, Identifier, Local, Member, Method, MethodParameterIn, NamespaceBlock, TypeDecl, Type}
+import io.shiftleft.codepropertygraph.generated.nodes.{AstNode, Call, Expression, Identifier, Local, Member, Method, MethodParameterIn, NamespaceBlock, Type, TypeDecl}
 import org.json4s.*
 import org.json4s.jackson.JsonMethods.*
 import org.json4s.jackson.Serialization
@@ -13,7 +13,11 @@ import org.json4s.JsonDSL.*
 import overflowdb.*
 import overflowdb.traversal.*
 import io.shiftleft.semanticcpg.language.operatorextension.*
-import io.shiftleft.semanticcpg.other.UsefullNodeEdgeSet._
+import io.shiftleft.semanticcpg.other.UsefullNodeEdgeSet.*
+
+import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.HashSet
+
 
 class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
 
@@ -38,7 +42,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     val identifiersFieldAccessMap =
       identifiers.repeat(_.in(EdgeTypes.AST))(_.emit.until(_.or(_.hasLabel(NodeTypes.METHOD), _.hasLabel(NodeTypes.NAMESPACE_BLOCK))))
       .collectAll[io.shiftleft.codepropertygraph.generated.nodes.Call]
-        .filter(x => allFieldAccessTypes.contains(x.methodFullName)).groupBy(_.code)
+        .filter(x => allFieldAccessTypes.contains(x.name)).groupBy(_.code)
     //处理filedIdentifier情况
     val identifiersFieldAccessJson = identifiersFieldAccessMap.map { case (key, list) =>
       handleFieldAccess(list)
@@ -98,22 +102,25 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     jsonString
   }
 
+  def expIsPointerType(x: AstNode): Boolean = {
+    val xT = x._evalTypeOut.headOption.orNull
+    xT != null && {
+      xT._pointerOfOut.nonEmpty || xT._arrayOfOut.nonEmpty || {
+        Iterator.single(xT).repeat(
+          _.out(EdgeTypes.L_REFERENCE_OF, EdgeTypes.R_REFERENCE_OF))(
+          _.until(_.collectAll[Type].or(_.or(_._pointerOfOut, _._arrayOfOut), _.id(xT.id())))
+        ).nonEmpty
+      }
+    }
+  }
+
   //todo：要考虑右值是全局变量且存在初始化的情况（尽在右边没有reachingDef的出边，或者出边指向的位置没有对local直接、解地址的赋值时）
   def getReferencesJson(astNode: List[AstNode]): JArray = {
 
+    //pointerAssignments:所有涉及对参数或者全局变量的自身或者成员的赋值中，涉及到对指针赋值的
     val pointerAssignments = astNode.repeat(_.in(EdgeTypes.AST))(_.emit.until(_.or(_.hasLabel(NodeTypes.METHOD), _.hasLabel(NodeTypes.NAMESPACE_BLOCK))))
         .collectAll[io.shiftleft.codepropertygraph.generated.nodes.Expression]
-        .filter(x => {
-          val xT = x._evalTypeOut.headOption.orNull
-          xT != null && {
-            xT._pointerOfOut.nonEmpty || xT._arrayOfOut.nonEmpty || {
-              Iterator.single(xT).repeat(
-                _.out(EdgeTypes.L_REFERENCE_OF, EdgeTypes.R_REFERENCE_OF))(
-                _.until(_.collectAll[Type].or(_.or(_._pointerOfOut, _._arrayOfOut), _.id(xT.id())))
-              ).nonEmpty
-            }
-          }
-        }).filter(x => {
+        .filter(expIsPointerType).filter(x => {
           if (x.order != 1) false else
           {
             val xP = x.astParent
@@ -121,23 +128,58 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
           }
         }).astParent.collectAll[Call].l
 
-      //处理pointerAssignments
-      val pointerAssignmentsJson = pointerAssignments.map(getPointerAssignmentsLeftJson)
+    //处理pointerAssignments
+//    val pointerAssignmentsJson = pointerAssignments.map(getPointerAssignmentsLeftJson)
 
-      //遍历右值的reachingDef，找到其中所有alloc
-      val reachingDefLoc = pointerAssignments.astChildren.order(2)._reachingDefIn.collectAll[AstNode]
-      val validLoc1 = reachingDefLoc.astParent.filter(xP => {
-        xP.isCall && allAssignmentTypes.contains(xP.asInstanceOf[Call].name)
-      })
-    val validLoc2 = validLoc1.filter(x => {
-      val rL = x.astChildren.order(2).headOption.orNull
-      //todo:这里可能被类型转换打断？
-      rL!=null && rL.isCall && allAllocTypes.contains(rL.asInstanceOf[Call].name)
-    }).collectAll[Call]
-    //validLoc2即为要加入json的右侧带alloc的赋值操作
-    val allocJson = validLoc2.map(getPointerAssignmentsAllocTrueLeftJson)
-      
-      JArray(pointerAssignmentsJson ++ allocJson)
+    val workList = scala.collection.mutable.Queue[List[Call]]()
+    workList.enqueue(pointerAssignments)
+    val hashSet = HashSet[Long]()
+    pointerAssignments.foreach(hashSet+=_.id())
+    val result = ListBuffer[Call]()
+
+    while(workList.nonEmpty){
+      val nowAssignments = workList.dequeue()
+      result ++= nowAssignments
+
+      //如果右侧找ast，但是遇到不是算数、逻辑、取解地址、index、fieldAccess、cast、new函数时，不找它们的children
+      //对于找到的所有identifier，通过reachingDef边回找
+      val candidateIdentifier = nowAssignments.astChildren.order(2)
+        .repeat(_.astChildren)
+        (_.emit.until(_.filter(x => {
+          !(x.isCall && !buildInTypes.contains(x.asInstanceOf[Call].name))
+        }))).hasLabel(NodeTypes.IDENTIFIER).distinct.l
+      //要求回找找到的点直接在左值且在赋值操作下
+      val candidateReachingDefs = candidateIdentifier._reachingDefIn.collectAll[Expression].order(1)
+        .astParent.filter(xP => {
+          xP.isCall && allAssignmentTypes.contains(xP.asInstanceOf[Call].name)
+        }).collectAll[Call].l
+      val distinctCandidate = candidateReachingDefs.filterNot(x => hashSet.contains(x.id())).l
+      distinctCandidate.foreach(hashSet+=_.id())
+      //加入workList
+      if(distinctCandidate.nonEmpty)workList.enqueue(distinctCandidate)
+    }
+
+    val resultJson = result.map(getPointerAssignmentsLeftJson).l
+    JArray(resultJson)
+
+//    //递归遍历pointerAssignments右值的reachingDef
+//    val reachingDefLoc = pointerAssignments.astChildren.order(2)._reachingDefIn.collectAll[AstNode]
+//      .order(1)
+//    //validLoc1为reachingDef到达的所有赋值语句
+//    val validLoc1 = reachingDefLoc.astParent.filter(xP => {
+//      xP.isCall && allAssignmentTypes.contains(xP.asInstanceOf[Call].name)
+//    })
+//    //validLoc2为validLoc1中所有右侧是alloc的语句，这个语句是需要收集的，而去需要递归遍历他new时的index
+//    val validLoc2 = validLoc1.filter(x => {
+//      val rL = x.astChildren.order(2).headOption.orNull
+//      //todo:这里可能被类型转换打断？
+//      rL!=null && rL.isCall && allAllocTypes.contains(rL.asInstanceOf[Call].name)
+//    }).collectAll[Call]
+//
+////    val validLoc3 =
+//    val allocJson = validLoc2.map(getPointerAssignmentsAllocTrueLeftJson)
+//
+//    JArray(pointerAssignmentsJson ++ allocJson)
   }
 
   def getPointerAssignmentsLeftJsonHelper(call: Call): JObject={
@@ -194,7 +236,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
 
   def getTypeInfoAddition(call:Call):JObject={
     val member = call._refOut.collectAll[Member].headOption.orNull
-    val memberTypeDecl = Iterator.single(member.astParent).collectAll[TypeDecl].headOption.orNull
+    val memberTypeDecl = if(member==null) null else Iterator.single(member.astParent).collectAll[TypeDecl].headOption.orNull
     val base_type_id:Long = if(memberTypeDecl==null) -1 else memberTypeDecl.id()
     val index_in_base:Long = if(member==null) -1 else (member.order-1)
     val offset_in_base:Long = if(member==null) -1 else member.memberOffset
@@ -251,7 +293,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     if(Iterator.single(astNode).exists(x => !{
       x.order == 1 && {
         val xP = x.astParent
-        xP.isCall && allLeftValueTypes.contains(xP.asInstanceOf[Call].methodFullName)
+        xP.isCall && allLeftValueTypes.contains(xP.asInstanceOf[Call].name)
       }
     })){
       return astNode
@@ -262,7 +304,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
       _.until(_.filter(x => !{
         x.order == 1 && x.label != NodeTypes.METHOD && x.label != NodeTypes.NAMESPACE_BLOCK && {
           val xP = x.astParent
-          xP.isCall && allLeftValueTypes.contains(xP.asInstanceOf[Call].methodFullName)
+          xP.isCall && allLeftValueTypes.contains(xP.asInstanceOf[Call].name)
         }
       }))
     ).filter(x => x.label != NodeTypes.METHOD && x.label != NodeTypes.NAMESPACE_BLOCK).headOption.orNull
@@ -271,7 +313,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
   def isInIndexDirectly(astNode: AstNode):Boolean = {
     (astNode.order==2 && {
       val xP = astNode.astParent
-      (xP != null && xP.isCall && allArrayAccessTypes.contains(xP.asInstanceOf[Call].methodFullName))
+      (xP != null && xP.isCall && allArrayAccessTypes.contains(xP.asInstanceOf[Call].name))
     }) ||
       (astNode.label == NodeTypes.METHOD || astNode.label == NodeTypes.NAMESPACE_BLOCK)
   }
@@ -293,7 +335,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
   def isInLeftValueDirectly(astNode: AstNode): Boolean = {
     astNode.order == 1 && {
       val parent = astNode.astParent
-      parent.isCall && (allAssignmentTypes.contains(parent.asInstanceOf[Call].methodFullName) ||
+      parent.isCall && (allAssignmentTypes.contains(parent.asInstanceOf[Call].name) ||
         additionAssignmentTypes.contains(parent.asInstanceOf[Call].name))
     }
   }

@@ -25,7 +25,7 @@ class DumpDependency(options: DependencyDumpOptions) extends LayerCreator {
     cpg.method.isExternal(false).zipWithIndex.foreach { case (method, i) =>
       if(method.block.astChildren.nonEmpty)
         {
-          val name = method.name +s"-$i"
+          val name = method.fullName +s"-$i"
           val str = method.dependencyJson.head
           (File(options.outDir) / s"$name-dependency.json").write(str)
         }

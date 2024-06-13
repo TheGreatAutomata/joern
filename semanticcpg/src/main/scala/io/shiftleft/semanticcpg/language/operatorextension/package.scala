@@ -2,6 +2,8 @@ package io.shiftleft.semanticcpg.language
 
 import io.shiftleft.codepropertygraph.generated.Operators
 
+//import scala.language.postfixOps
+
 package object operatorextension {
 
   //用name来使用，而不是methodFullName
@@ -48,6 +50,42 @@ package object operatorextension {
     Operators.modulo
   ) ++ assignmentAndArithmetic
 
+  val bitTypes: Set[String] = Set(
+    Operators.and,
+    Operators.or,
+    Operators.xor,
+    Operators.shiftLeft,
+    "<operator>.shiftRight",
+    Operators.logicalShiftRight
+  )
+
+  val boolTypes: Set[String] = Set(
+    Operators.equals,
+    Operators.notEquals,
+    Operators.lessThan,
+    Operators.lessEqualsThan,
+    "<operator>.shiftRight",
+    Operators.greaterThan,
+    Operators.greaterEqualsThan,
+    Operators.compare,
+    Operators.logicalAnd,
+    Operators.logicalAnd,
+    Operators.logicalOr,
+    Operators.logicalOr,
+    Operators.assignmentModulo,
+    Operators.assignmentExponentiation,
+    Operators.assignmentOr,
+    Operators.assignmentAnd
+  )
+
+  val allUnaryTypes: Set[String] = Set(
+    Operators.logicalNot,
+    Operators.logicalNot,
+    Operators.not,
+    Operators.plus,
+    Operators.minus
+  )
+
   val additionAccessTypes: Set[String] = Set(
     "operator[]"
   )
@@ -63,7 +101,11 @@ package object operatorextension {
 
   /** All operators representing direct or indirect accesses to fields of data structures
     */
-  val allFieldAccessTypes: Set[String] = Set(Operators.fieldAccess, Operators.indirectFieldAccess)
+  val allFieldAccessTypes: Set[String] = Set(Operators.fieldAccess,
+    Operators.indirectFieldAccess,
+    "<operator>.templateFieldAccess",
+    "<operator>.indirectFieldAccess"
+  )
 
   val allLeftValueTypes: Set[String] = Set(
     Operators.indirection
@@ -74,4 +116,13 @@ package object operatorextension {
     "<operator>.arrayNew",
     Operators.alloc
   )
+
+  val buildInTypes: Set[String] = Set(
+    Operators.indirection,
+    Operators.addressOf,
+    "<operator>.sizeof",
+    "<operator>.alignof",
+    "<operator>.cast"
+  ) ++ allUnaryTypes ++ boolTypes ++ bitTypes ++ allArithmeticTypes ++ allArrayAccessTypes ++
+    allFieldAccessTypes ++ allAllocTypes
 }

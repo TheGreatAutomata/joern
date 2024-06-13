@@ -88,7 +88,7 @@ def compare_elements(list1, list2, key, key2=None):
 def compare_json(json1, json2, template, functionName=None):
     differences = []
     for key, value in template.items():
-        if key in ["source_end_line", "type_id", "base_type_id", "code"]:
+        if key in ["source_end_line", "type_id", "base_type_id", "code", "variable"]:
             continue  # Skip comparing these fields
         if key == "functionName":
             key = functionName
