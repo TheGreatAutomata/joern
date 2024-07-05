@@ -23,8 +23,33 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
 
   def dependencyJson: Iterator[String] = traversal.map(dependencyJson)
 
-  def getVariableJson(identifiers: List[Identifier]): JArray = {
+  def getFieldCode(astNode: AstNode): String = {
+    if(astNode.code.startsWith("this->")){
+      astNode.code
+    }else{
+      if(astNode.astChildren.order(1).collectAll[Identifier].name("this").nonEmpty){
+        "this->" + astNode.code
+      }else{
+        astNode.code
+      }
+    }
+  }
 
+  def getVariableJsonForThis(identifiers: List[Identifier]): JArray = {
+    //获得identifier路线上所有的fieldAccess
+    val identifiersFieldAccessMap =
+      identifiers.repeat(_.in(EdgeTypes.AST))(_.emit.until(_.or(_.hasLabel(NodeTypes.METHOD), _.hasLabel(NodeTypes.NAMESPACE_BLOCK))))
+        .collectAll[io.shiftleft.codepropertygraph.generated.nodes.Call]
+        .filter(x => allFieldAccessTypes.contains(x.name)).groupBy(getFieldCode)
+    //处理filedIdentifier情况
+    val identifiersFieldAccessJson = identifiersFieldAccessMap.map { case (key, list) =>
+      handleFieldAccess(list)
+    }
+    // 将合并后的 Iterable 转换为 JArray
+    JArray(identifiersFieldAccessJson.toList)
+  }
+
+  def getVariableJson(identifiers: List[Identifier]): JArray = {
     val identifierPreMap = identifiers.groupBy(_._refOut.headOption.map(_.label).getOrElse(""))
     val localList = identifierPreMap.getOrElse(NodeTypes.LOCAL, List.empty[Identifier])
     val parameterList = identifierPreMap.getOrElse(NodeTypes.METHOD_PARAMETER_IN, List.empty[Identifier])
@@ -78,8 +103,12 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
     val paraIdentifiers = parameters._refIn.collectAll[Identifier].l
     val paraVariableJson = getVariableJson(paraIdentifiers)
 
+    //this
+    val thisIdentifiers = method.ast.collectAll[Identifier].name("this").l
+    val thisVariableJson = getVariableJsonForThis(thisIdentifiers)
+
     //reference*
-    val referenceJson = getReferencesJson(globalIdentifiers ++ paraIdentifiers)
+    val referenceJson = getReferencesJson(globalIdentifiers ++ paraIdentifiers ++ thisIdentifiers)
 
     //start_line*
     val start_line: Long = method.lineNumber.get.longValue()
@@ -93,7 +122,7 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
           ("source_end_line" -> end_len) ~
             ("global_variable" -> globalVariableJson) ~
             ("param_list" -> paramListJson) ~
-            ("param_variable" -> paraVariableJson) ~
+            ("param_variable" -> (paraVariableJson++thisVariableJson)) ~
             ("reference" -> referenceJson)~
             ("source_beg_line" -> start_line) ~
             ("filename" -> uri)
@@ -232,14 +261,14 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
 
   def getTypeInfoAndName(call: Call): JObject = {
     val typ = call._evalTypeOut.collectAll[Type].headOption.orNull
-    ("name" -> call.code) ~ addTypeInfoTitle(getTypeInfo(typ)~getTypeInfoAddition(call))
+    ("name" -> getFieldCode(call)) ~ addTypeInfoTitle(getTypeInfo(typ)~getTypeInfoAddition(call))
   }
 
   def getTypeInfoAddition(call:Call):JObject={
     val member = call._refOut.collectAll[Member].headOption.orNull
     val memberTypeDecl = if(member==null) null else Iterator.single(member.astParent).collectAll[TypeDecl].headOption.orNull
     val base_type_id:Long = if(memberTypeDecl==null) -1 else memberTypeDecl.id()
-    val index_in_base:Long = if(member==null) -1 else (member.order-1)
+    val index_in_base:Long = if(member==null) -1 else member.indexOrder
     val offset_in_base:Long = if(member==null) -1 else member.memberOffset
     ("base_type_id" -> base_type_id)~
       ("index_in_base"-> index_in_base)~
@@ -247,24 +276,9 @@ class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
   }
   
   def getAttributes(astNode: List[AstNode]): JObject = {
-    val is_modified = astNode.find(isInLeftValue) match {
-      case Some(identifier) =>
-        true
-      case None =>
-        false
-    }
-    val used_in_branch = astNode.find(isInCondition) match {
-      case Some(identifier) =>
-        true
-      case None =>
-        false
-    }
-    val used_in_index = astNode.find(isInIndex) match {
-      case Some(identifier) =>
-        true
-      case None =>
-        false
-    }
+    val is_modified = astNode.exists(isInLeftValue)
+    val used_in_branch = astNode.exists(isInCondition)
+    val used_in_index = astNode.exists(isInIndex)
     ("attributes" ->
       ("is_modified" -> is_modified) ~
         ("used_in_branch" -> used_in_branch) ~

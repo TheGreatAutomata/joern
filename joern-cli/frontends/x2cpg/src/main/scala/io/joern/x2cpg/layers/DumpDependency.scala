@@ -20,15 +20,24 @@ class DumpDependency(options: DependencyDumpOptions) extends LayerCreator {
   override val description: String       = DumpDependency.description
   override val storeOverlayName: Boolean = false
 
+  def getLastPart(input: String): String = {
+    val index = input.lastIndexOf('/')
+    if (index != -1) {
+      input.substring(index + 1)
+    } else {
+      input
+    }
+  }
+
   override def create(context: LayerCreatorContext, storeUndoInfo: Boolean): Unit = {
     val cpg = context.cpg
     cpg.method.isExternal(false).zipWithIndex.foreach { case (method, i) =>
       if(method.block.astChildren.nonEmpty)
         {
-          val name = method.fullName +s"-$i"
-          var str = method.dependencyJson.head
-          if(str.length > 254) str = method.name+s"-tooLong-$i"
-          if(str.length > 254) str = s"tooLong-$i"
+          var name = method.name + "-" + getLastPart(method.filename) + "-" + method.lineNumber.getOrElse(0) +s"-$i"
+          val str = method.dependencyJson.head
+          if(name.length > 254) name = method.name+s"-tooLong-$i"
+          if(name.length > 254) name = s"tooLong-$i"
           (File(options.outDir) / s"$name-dependency.json").write(str)
         }
     }

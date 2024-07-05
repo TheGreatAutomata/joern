@@ -12,6 +12,7 @@ import io.shiftleft.semanticcpg.layers.*
 import io.shiftleft.semanticcpg.dependencyJsonGenerator.DependencyJsonGenerator
 import io.shiftleft.SerializedCpg
 import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.nodes.Type
 import io.shiftleft.passes.CpgPassBase
 import io.shiftleft.semanticcpg.Overlays
 
@@ -20,7 +21,7 @@ object myMain {
   def main(args: Array[String]): Unit = {
     val console = new JoernConsole()
     val cpg = console.loadCpg(args(0)).get
-    val re = DependencyJsonGenerator(cpg.method.name("GenerateProblem_ref").last).dependencyJson(cpg.method.name("GenerateProblem_ref").last)
+    val re = DependencyJsonGenerator(cpg.method.name("func")).dependencyJson(cpg.method.name("func").head)
 //    val re = DotDdgGenerator.toDotDdg(cpg.method.name("GenerateProblem_ref").last)
     re
   }

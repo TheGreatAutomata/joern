@@ -103,7 +103,6 @@ package object operatorextension {
     */
   val allFieldAccessTypes: Set[String] = Set(Operators.fieldAccess,
     Operators.indirectFieldAccess,
-    "<operator>.templateFieldAccess",
     "<operator>.indirectFieldAccess"
   )
 
