@@ -14,10 +14,8 @@ import overflowdb.*
 import overflowdb.traversal.*
 import io.shiftleft.semanticcpg.language.operatorextension.*
 import io.shiftleft.semanticcpg.other.UsefullNodeEdgeSet.*
-
 import scala.collection.mutable.ListBuffer
 import scala.collection.mutable.HashSet
-
 
 class DependencyJsonGenerator(val traversal: Iterator[Method]) extends AnyVal {
 

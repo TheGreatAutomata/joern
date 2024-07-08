@@ -5,6 +5,7 @@
 project/project
 project/target
 target
+lammpsOut.zip
 tests/smoke-test-repos
 tests/**/node_modules
 tests/**/package-lock.json

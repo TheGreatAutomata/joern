@@ -34,11 +34,16 @@ class DumpDependency(options: DependencyDumpOptions) extends LayerCreator {
     cpg.method.isExternal(false).zipWithIndex.foreach { case (method, i) =>
       if(method.block.astChildren.nonEmpty)
         {
-          var name = method.name + "-" + getLastPart(method.filename) + "-" + method.lineNumber.getOrElse(0) +s"-$i"
-          val str = method.dependencyJson.head
-          if(name.length > 254) name = method.name+s"-tooLong-$i"
-          if(name.length > 254) name = s"tooLong-$i"
-          (File(options.outDir) / s"$name-dependency.json").write(str)
+          try {
+            var name = method.name + "-" + getLastPart(method.filename) + "-" + method.lineNumber.getOrElse(0) + s"-$i"
+            val str = method.dependencyJson.head
+            if (name.length > 254) name = method.name + s"-tooLong-$i"
+            if (name.length > 254) name = s"tooLong-$i"
+            (File(options.outDir) / s"$name-dependency.json").write(str)
+          }
+          catch {
+            case e: Exception => {}
+          }
         }
     }
   }
