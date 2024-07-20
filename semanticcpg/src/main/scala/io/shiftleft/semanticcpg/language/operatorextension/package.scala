@@ -102,8 +102,7 @@ package object operatorextension {
   /** All operators representing direct or indirect accesses to fields of data structures
     */
   val allFieldAccessTypes: Set[String] = Set(Operators.fieldAccess,
-    Operators.indirectFieldAccess,
-    "<operator>.indirectFieldAccess"
+    Operators.indirectFieldAccess
   )
 
   val allLeftValueTypes: Set[String] = Set(
