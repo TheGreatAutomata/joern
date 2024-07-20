@@ -1,7 +1,7 @@
 package io.joern.x2cpg.utils
 
 import io.joern.x2cpg.passes.frontend.Dereference
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.codepropertygraph.generated.{Properties, PropertyNames}
 import org.slf4j.{Logger, LoggerFactory}
@@ -15,7 +15,8 @@ import scala.jdk.CollectionConverters.*
 trait LinkingUtil {
 
   import overflowdb.BatchedUpdate.DiffGraphBuilder
-  private val MAX_BATCH_SIZE = 100
+
+  val MAX_BATCH_SIZE: Int = 100
 
   val logger: Logger = LoggerFactory.getLogger(classOf[LinkingUtil])
 
@@ -31,15 +32,8 @@ trait LinkingUtil {
   def namespaceBlockFullNameToNode(cpg: Cpg, x: String): Option[NamespaceBlock] =
     nodesWithFullName(cpg, x).collectFirst { case x: NamespaceBlock => x }
 
-  def nodesWithFullName(cpg: Cpg, x: String): mutable.Seq[NodeRef[_ <: NodeDb]] =
+  def nodesWithFullName(cpg: Cpg, x: String): mutable.Seq[NodeRef[? <: NodeDb]] =
     cpg.graph.indexManager.lookup(PropertyNames.FULL_NAME, x).asScala
-
-  protected def getBatchSize(totalItems: Int): Int = {
-    val batchSize =
-      if totalItems > MAX_BATCH_SIZE then totalItems / ConcurrentTaskUtil.MAX_POOL_SIZE
-      else MAX_BATCH_SIZE
-    Math.min(batchSize, MAX_BATCH_SIZE)
-  }
 
   /** For all nodes `n` with a label in `srcLabels`, determine the value of `n.\$dstFullNameKey`, use that to lookup the
     * destination node in `dstNodeMap`, and create an edge of type `edgeType` between `n` and the destination node.
@@ -117,7 +111,7 @@ trait LinkingUtil {
   ): Unit = {
     var loggedDeprecationWarning = false
     val dereference              = Dereference(cpg)
-    cpg.graph.nodes(srcLabels: _*).asScala.cast[SRC_NODE_TYPE].foreach { srcNode =>
+    cpg.graph.nodes(srcLabels*).asScala.cast[SRC_NODE_TYPE].foreach { srcNode =>
       if (!srcNode.outE(edgeType).hasNext) {
         getDstFullNames(srcNode).foreach { dstFullName =>
           val dereferenceDstFullName = dereference.dereferenceTypeFullName(dstFullName)

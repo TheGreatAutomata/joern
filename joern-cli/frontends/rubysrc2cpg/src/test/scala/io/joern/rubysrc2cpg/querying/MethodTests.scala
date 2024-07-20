@@ -2,28 +2,62 @@ package io.joern.rubysrc2cpg.querying
 
 import io.joern.rubysrc2cpg.testfixtures.RubyCode2CpgFixture
 import io.joern.x2cpg.Defines
-import io.shiftleft.codepropertygraph.generated.{ControlStructureTypes, Operators}
-import io.shiftleft.codepropertygraph.generated.nodes.{Literal, Return}
+import io.joern.rubysrc2cpg.passes.Defines as RDefines
+import io.joern.rubysrc2cpg.passes.GlobalTypes.kernelPrefix
+import io.shiftleft.codepropertygraph.generated.{ControlStructureTypes, ModifierTypes, NodeTypes, Operators}
+import io.shiftleft.codepropertygraph.generated.nodes.{
+  Call,
+  Identifier,
+  Literal,
+  Method,
+  MethodRef,
+  Return,
+  TypeDecl,
+  TypeRef
+}
 import io.shiftleft.semanticcpg.language.*
 
 class MethodTests extends RubyCode2CpgFixture {
 
-  "`def f(x) = 1` is represented by a METHOD node" in {
+  "`def f(x) = 1`" should {
     val cpg = code("""
-                     |def f(x) = 1
-                     |""".stripMargin)
+        |def f(x) = 1
+        |""".stripMargin)
 
-    val List(f) = cpg.method.name("f").l
+    "be represented by a METHOD node" in {
+      val List(f) = cpg.method.name("f").l
 
-    f.fullName shouldBe "Test0.rb:<global>::program:f"
-    f.isExternal shouldBe false
-    f.lineNumber shouldBe Some(2)
-    f.numberOfLines shouldBe 1
+      f.fullName shouldBe "Test0.rb:<global>::program:f"
+      f.isExternal shouldBe false
+      f.lineNumber shouldBe Some(2)
+      f.numberOfLines shouldBe 1
 
-    val List(x) = f.parameter.name("x").l
-    x.index shouldBe 0
-    x.isVariadic shouldBe false
-    x.lineNumber shouldBe Some(2)
+      val List(x) = f.parameter.name("x").l
+      x.index shouldBe 1
+      x.isVariadic shouldBe false
+      x.lineNumber shouldBe Some(2)
+    }
+
+    "have a corresponding bound type" in {
+      val List(fType) = cpg.typeDecl("f").l
+      fType.fullName shouldBe "Test0.rb:<global>::program:f"
+      fType.code shouldBe "def f(x) = 1"
+      fType.astParentFullName shouldBe "Test0.rb:<global>::program:f"
+      fType.astParentType shouldBe NodeTypes.METHOD
+      val List(fMethod) = fType.iterator.boundMethod.l
+      fType.fullName shouldBe "Test0.rb:<global>::program:f"
+    }
+
+    "create a 'fake' method for the file" in {
+      val List(m) = cpg.method.nameExact(RDefines.Program).l
+      m.fullName shouldBe "Test0.rb:<global>::program"
+      m.isModule.nonEmpty shouldBe true
+
+      val List(t) = cpg.typeDecl.nameExact(RDefines.Program).l
+      m.fullName shouldBe "Test0.rb:<global>::program"
+      m.isModule.nonEmpty shouldBe true
+      t.methodBinding.methodFullName.toSet should contain(m.fullName)
+    }
   }
 
   "`def f ... return 1 ... end` is represented by a METHOD node" in {
@@ -39,7 +73,7 @@ class MethodTests extends RubyCode2CpgFixture {
     f.isExternal shouldBe false
     f.lineNumber shouldBe Some(2)
     f.numberOfLines shouldBe 3
-    f.parameter.size shouldBe 0
+    f.parameter.size shouldBe 1
   }
 
   "`def f = puts 'hi'` is represented by a METHOD node returning `puts 'hi'`" in {
@@ -53,7 +87,7 @@ class MethodTests extends RubyCode2CpgFixture {
     f.isExternal shouldBe false
     f.lineNumber shouldBe Some(2)
     f.numberOfLines shouldBe 1
-    f.parameter.size shouldBe 0
+    f.parameter.size shouldBe 1
 
     val List(r: Return) = f.methodReturn.cfgIn.l: @unchecked
     r.code shouldBe "puts 'hi'"
@@ -71,7 +105,7 @@ class MethodTests extends RubyCode2CpgFixture {
     f.isExternal shouldBe false
     f.lineNumber shouldBe Some(2)
     f.numberOfLines shouldBe 1
-    f.parameter.size shouldBe 1
+    f.parameter.size shouldBe 2
 
     val List(r: Return) = f.methodReturn.cfgIn.l: @unchecked
     r.code shouldBe "x.class"
@@ -173,7 +207,7 @@ class MethodTests extends RubyCode2CpgFixture {
           case funcF :: Nil =>
             inside(funcF.parameter.l) {
               case thisParam :: xParam :: Nil =>
-                thisParam.code shouldBe "this"
+                thisParam.code shouldBe RDefines.Self
                 thisParam.typeFullName shouldBe "Test0.rb:<global>::program.C"
                 thisParam.index shouldBe 0
                 thisParam.isVariadic shouldBe false
@@ -207,7 +241,7 @@ class MethodTests extends RubyCode2CpgFixture {
           case funcF :: Nil =>
             inside(funcF.parameter.l) {
               case thisParam :: xParam :: Nil =>
-                thisParam.code shouldBe "this"
+                thisParam.code shouldBe RDefines.Self
                 thisParam.typeFullName shouldBe "Test0.rb:<global>::program.C"
                 thisParam.index shouldBe 0
                 thisParam.isVariadic shouldBe false
@@ -234,23 +268,23 @@ class MethodTests extends RubyCode2CpgFixture {
         |""".stripMargin)
 
     "be interpreted as an array type parameter if a single star given" in {
-      inside(cpg.method("foo").parameter.l) {
+      inside(cpg.method("foo").parameter.indexGt(0).l) {
         case xs :: Nil =>
           xs.name shouldBe "xs"
           xs.code shouldBe "*xs"
           xs.isVariadic shouldBe true
-          xs.typeFullName shouldBe "__builtin.Array"
+          xs.typeFullName shouldBe s"$kernelPrefix.Array"
         case xs => fail(s"Expected `foo` to have one parameter, got [${xs.code.mkString(", ")}]")
       }
     }
 
     "be interpreted as a hash type parameter if two stars given" in {
-      inside(cpg.method("bar").parameter.l) {
+      inside(cpg.method("bar").parameter.indexGt(0).l) {
         case ys :: Nil =>
           ys.name shouldBe "ys"
           ys.code shouldBe "**ys"
           ys.isVariadic shouldBe true
-          ys.typeFullName shouldBe "__builtin.Hash"
+          ys.typeFullName shouldBe s"$kernelPrefix.Hash"
         case xs => fail(s"Expected `foo` to have one parameter, got [${xs.code.mkString(", ")}]")
       }
     }
@@ -293,7 +327,13 @@ class MethodTests extends RubyCode2CpgFixture {
               // bar forwards parameters to a call to the aliased method
               inside(bar.call.name("x=").l) {
                 case barCall :: Nil =>
-                  barCall.argument.isIdentifier.name.head shouldBe "z"
+                  inside(barCall.argument.l) {
+                    case _ :: (z: Identifier) :: Nil =>
+                      z.name shouldBe "z"
+                      z.argumentIndex shouldBe 1
+                    case xs =>
+                      fail(s"Expected a two arguments for the call `x=`,  instead got [${xs.code.mkString(",")}]")
+                  }
                   barCall.code shouldBe "x=(z)"
                 case xs => fail(s"Expected a single call to `bar=`,  instead got [${xs.code.mkString(",")}]")
               }
@@ -413,7 +453,11 @@ class MethodTests extends RubyCode2CpgFixture {
   "break unless statement" should {
     val cpg = code("""
         |  def foo
+<<<<<<< HEAD
         |    loop do
+=======
+        |    bar do
+>>>>>>> f47c96a
         |      break unless 1 < 2
         |    end
         |  end
@@ -495,4 +539,146 @@ class MethodTests extends RubyCode2CpgFixture {
       }
     }
   }
+<<<<<<< HEAD
+=======
+
+  "Chained method calls" should {
+    val cpg = code("""
+        |class Foo
+        | def authenticate(email, password)
+        |   auth = nil
+        |   if a == Digest::MD5.hexdigest(password)
+        |     auth = a
+        |   end
+        | end
+        |end
+        |""".stripMargin)
+
+    "have chained calls" in {
+      inside(cpg.controlStructure.controlStructureType(ControlStructureTypes.IF).condition.headOption) {
+        case Some(ifCond: Call) =>
+          inside(ifCond.argument.l) {
+            case (leftArg: Identifier) :: (rightArg: Call) :: Nil =>
+              rightArg.name shouldBe "hexdigest"
+              rightArg.code shouldBe "Digest::MD5.hexdigest(password)"
+
+              inside(rightArg.argument.l) {
+                case (md5: Call) :: (passwordArg: Identifier) :: Nil =>
+                  md5.name shouldBe "MD5"
+                  inside(md5.argument.l) {
+                    case (digest: Identifier) :: Nil =>
+                      digest.name shouldBe "Digest"
+                    case xs => fail(s"Expected 1 argument, got ${xs.code.mkString(", ")} instead")
+                  }
+                case xs => fail(s"Expected identifier and call, got ${xs.code.mkString(", ")} instead")
+              }
+            case xs => fail(s"Expected 3 arguments, got ${xs.code.mkString(", ")} instead")
+          }
+        case None => fail("Expected if-condition")
+      }
+    }
+  }
+
+  "METHOD_REF and TYPE_REF nodes" should {
+    val cpg = code(
+      """
+        |module A
+        | def foo
+        | end
+        |end
+        |
+        |class B
+        |end
+        |
+        |def c
+        |end
+        |""".stripMargin,
+      "t1.rb"
+    )
+      .moreCode(
+        """
+          |require 't1'
+          |class D
+          |end
+          |
+          |def e
+          |end
+          |""".stripMargin,
+        "t2.rb"
+      )
+
+    "be directly under :program" in {
+      inside(cpg.method.name(RDefines.Program).filename("t1.rb").assignment.l) {
+        case moduleAssignment :: classAssignment :: methodAssignment :: Nil =>
+          moduleAssignment.code shouldBe "self.A = class A (...)"
+          classAssignment.code shouldBe "self.B = class B (...)"
+          methodAssignment.code shouldBe "self.c = def c (...)"
+
+          inside(moduleAssignment.argument.l) {
+            case (lhs: Call) :: (rhs: TypeRef) :: Nil =>
+              lhs.code shouldBe "self.A"
+              lhs.name shouldBe Operators.fieldAccess
+              rhs.typeFullName shouldBe "t1.rb:<global>::program.A"
+            case xs => fail(s"Expected lhs and rhs, instead got ${xs.code.mkString(",")}")
+          }
+
+          inside(classAssignment.argument.l) {
+            case (lhs: Call) :: (rhs: TypeRef) :: Nil =>
+              lhs.code shouldBe "self.B"
+              lhs.name shouldBe Operators.fieldAccess
+              rhs.typeFullName shouldBe "t1.rb:<global>::program.B"
+            case xs => fail(s"Expected lhs and rhs, instead got ${xs.code.mkString(",")}")
+          }
+
+          inside(methodAssignment.argument.l) {
+            case (lhs: Call) :: (rhs: MethodRef) :: Nil =>
+              lhs.code shouldBe "self.c"
+              lhs.name shouldBe Operators.fieldAccess
+              rhs.methodFullName shouldBe "t1.rb:<global>::program:c"
+              rhs.typeFullName shouldBe "t1.rb:<global>::program:c"
+            case xs => fail(s"Expected lhs and rhs, instead got ${xs.code.mkString(",")}")
+          }
+
+        case xs => fail(s"Expected three assignments, got [${xs.code.mkString(",")}]")
+      }
+    }
+
+    "not be present in other files" in {
+      inside(cpg.method.name(RDefines.Program).filename("t2.rb").assignment.l) {
+        case classAssignment :: methodAssignment :: Nil =>
+          classAssignment.code shouldBe "self.D = class D (...)"
+          methodAssignment.code shouldBe "self.e = def e (...)"
+
+          inside(classAssignment.argument.l) {
+            case (lhs: Call) :: (rhs: TypeRef) :: Nil =>
+              lhs.code shouldBe "self.D"
+              lhs.name shouldBe Operators.fieldAccess
+              rhs.typeFullName shouldBe "t2.rb:<global>::program.D"
+            case xs => fail(s"Expected lhs and rhs, instead got ${xs.code.mkString(",")}")
+          }
+
+          inside(methodAssignment.argument.l) {
+            case (lhs: Call) :: (rhs: MethodRef) :: Nil =>
+              lhs.code shouldBe "self.e"
+              lhs.name shouldBe Operators.fieldAccess
+              rhs.methodFullName shouldBe "t2.rb:<global>::program:e"
+              rhs.typeFullName shouldBe "t2.rb:<global>::program:e"
+            case xs => fail(s"Expected lhs and rhs, instead got ${xs.code.mkString(",")}")
+          }
+
+        case xs => fail(s"Expected two assignments, got [${xs.code.mkString(",")}]")
+      }
+    }
+
+    "be placed directly before each entity's definition" in {
+      inside(cpg.method.name(RDefines.Program).filename("t1.rb").block.astChildren.l) {
+        case (a1: Call) :: (_: TypeDecl) :: (a2: Call) :: (_: TypeDecl) :: (a3: Call) :: (_: Method) :: (_: TypeDecl) :: Nil =>
+          a1.code shouldBe "self.A = class A (...)"
+          a2.code shouldBe "self.B = class B (...)"
+          a3.code shouldBe "self.c = def c (...)"
+        case xs => fail(s"Expected assignments to appear before definitions, instead got [$xs]")
+      }
+    }
+  }
+>>>>>>> f47c96a
 }

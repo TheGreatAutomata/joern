@@ -6,7 +6,7 @@ import java.io.{File, FileOutputStream}
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.config.KotlinSourceRoot
 import org.jetbrains.kotlin.cli.jvm.compiler.{EnvironmentConfigFiles, KotlinCoreEnvironment}
-import org.jetbrains.kotlin.cli.jvm.config.{JavaSourceRoot, JvmClasspathRoot, JvmModulePathRoot}
+import org.jetbrains.kotlin.cli.jvm.config.{JavaSourceRoot, JvmClasspathRoot}
 import org.jetbrains.kotlin.config.{CommonConfigurationKeys, CompilerConfiguration, JVMConfigurationKeys}
 import org.jetbrains.kotlin.metadata.jvm.deserialization.JvmProtoBufUtil
 import org.jetbrains.kotlin.com.intellij.openapi.util.Disposer
@@ -82,8 +82,6 @@ object CompilerAPI {
   }
 }
 
-class CompilerAPI {}
-
 class ErrorLoggingMessageCollector extends MessageCollector {
   private val logger = LoggerFactory.getLogger(getClass)
 
@@ -98,4 +96,5 @@ class ErrorLoggingMessageCollector extends MessageCollector {
   }
   override def hasErrors: Boolean = false
   override def clear(): Unit      = {}
+
 }

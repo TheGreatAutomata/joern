@@ -1,6 +1,6 @@
 package io.joern.console
 
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.StoredNode
 
 case class CodeSnippet(content: String, filename: String)
@@ -13,7 +13,7 @@ case class Query(
   title: String,
   description: String,
   score: Double,
-  traversal: Cpg => Iterator[_ <: StoredNode],
+  traversal: Cpg => Iterator[? <: StoredNode],
   traversalAsString: String = "",
   tags: List[String] = List(),
   language: String = "",
@@ -48,4 +48,4 @@ object Query {
   }
 }
 
-case class TraversalWithStrRep(traversal: Cpg => Iterator[_ <: StoredNode], strRep: String = "")
+case class TraversalWithStrRep(traversal: Cpg => Iterator[? <: StoredNode], strRep: String = "")

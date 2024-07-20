@@ -4,7 +4,7 @@ import io.joern.jimple2cpg.Config
 import io.joern.jimple2cpg.astcreation.AstCreator
 import io.joern.jimple2cpg.util.ProgramHandlingUtil.ClassFile
 import io.joern.x2cpg.datastructures.Global
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.passes.ConcurrentWriterCpgPass
 import org.slf4j.LoggerFactory
 import better.files.{DefaultCharset, File}
@@ -26,7 +26,7 @@ class AstCreationPass(classFiles: List[ClassFile], cpg: Cpg, config: Config)
   val global: Global = new Global()
   private val logger = LoggerFactory.getLogger(classOf[AstCreationPass])
 
-  override def generateParts(): Array[_ <: AnyRef] = classFiles.toArray
+  override def generateParts(): Array[? <: AnyRef] = classFiles.toArray
 
   override def runOnPart(builder: DiffGraphBuilder, classFile: ClassFile): Unit = {
     try {

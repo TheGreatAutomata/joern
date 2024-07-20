@@ -5,7 +5,7 @@ import io.joern.dataflowengineoss.testfixtures.{SemanticCpgTestFixture, Semantic
 import io.joern.jimple2cpg.{Config, Jimple2Cpg}
 import io.joern.x2cpg.X2Cpg
 import io.joern.x2cpg.testfixtures.{Code2CpgFixture, DefaultTestCpg, LanguageFrontend, TestCpg}
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 
 import java.io.File
 import java.nio.file.Path
@@ -34,8 +34,10 @@ class JimpleTestCpg extends DefaultTestCpg with Jimple2CpgFrontend with Semantic
     applyOssDataFlow()
   }
 
-  override protected def codeDirPreProcessing(rootFile: Path, codeFiles: List[Path]): Unit =
-    JimpleCodeToCpgFixture.compileJava(rootFile, codeFiles.map(_.toFile))
+  override protected def codeDirPreProcessing(rootFile: Path, codeFiles: List[Path]): Unit = {
+    val sourceFiles = codeFiles.map(_.toFile).filter(_.getName.endsWith(".java"))
+    if (sourceFiles.nonEmpty) JimpleCodeToCpgFixture.compileJava(rootFile, sourceFiles)
+  }
 
 }
 

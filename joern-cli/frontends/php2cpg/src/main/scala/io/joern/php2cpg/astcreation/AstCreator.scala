@@ -17,8 +17,11 @@ import io.shiftleft.semanticcpg.language.types.structure.NamespaceTraversal
 import org.slf4j.LoggerFactory
 import overflowdb.BatchedUpdate
 
-class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidation: ValidationMode)
-    extends AstCreatorBase(filename)
+import java.nio.charset.StandardCharsets
+
+class AstCreator(filename: String, phpAst: PhpFile, fileContent: Option[String], disableFileContent: Boolean)(implicit
+  withSchemaValidation: ValidationMode
+) extends AstCreatorBase(filename)
     with AstNodeBuilder[PhpNode, AstCreator] {
 
   private val logger          = LoggerFactory.getLogger(AstCreator.getClass)
@@ -56,7 +59,7 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
   }
 
   private def globalMethodDeclStmt(file: PhpFile, bodyStmts: List[PhpStmt]): PhpMethodDecl = {
-    val modifiersList = List(ModifierTypes.VIRTUAL, ModifierTypes.PUBLIC, ModifierTypes.STATIC)
+    val modifiersList = List(ModifierTypes.VIRTUAL, ModifierTypes.PUBLIC, ModifierTypes.STATIC, ModifierTypes.MODULE)
     PhpMethodDecl(
       name = PhpNameExpr(NamespaceTraversal.globalNamespaceName, file.attributes),
       params = Nil,
@@ -66,11 +69,15 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
       returnByRef = false,
       namespacedName = None,
       isClassMethod = false,
-      attributes = file.attributes
+      attributes = file.attributes,
+      attributeGroups = Seq.empty[PhpAttributeGroup]
     )
   }
 
   private def astForPhpFile(file: PhpFile): Ast = {
+    val fileNode = NewFile().name(filename)
+    fileContent.foreach(fileNode.content(_))
+
     scope.pushNewScope(globalNamespace)
 
     val (globalDeclStmts, globalMethodStmts) =
@@ -87,14 +94,15 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
       classLikeType = ClassLikeTypes.Class,
       scalarType = None,
       hasConstructor = false,
-      attributes = file.attributes
+      attributes = file.attributes,
+      Seq.empty[PhpAttributeGroup]
     )
 
     val globalTypeDeclAst = astForClassLikeStmt(globalTypeDeclStmt)
 
     scope.popScope() // globalNamespace
 
-    Ast(globalNamespace).withChild(globalTypeDeclAst)
+    Ast(fileNode).withChild(Ast(globalNamespace).withChild(globalTypeDeclAst))
   }
 
   private def astsForStmt(stmt: PhpStmt): List[Ast] = {
@@ -232,10 +240,24 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
     val methodBodyStmts = bodyPrefixAsts ++ decl.stmts.flatMap(astsForStmt)
     val methodReturn    = newMethodReturnNode(returnType, line = line(decl), column = None)
 
-    val methodBody = blockAst(blockNode(decl), methodBodyStmts)
+    val attributeAsts = decl.attributeGroups.flatMap(astForAttributeGroup)
+    val methodBody    = blockAst(blockNode(decl), methodBodyStmts)
 
     scope.popScope()
-    methodAstWithAnnotations(method, parameters, methodBody, methodReturn, modifiers)
+    methodAstWithAnnotations(method, parameters, methodBody, methodReturn, modifiers, attributeAsts)
+  }
+
+  private def astForAttributeGroup(attrGrp: PhpAttributeGroup): Seq[Ast] = {
+    attrGrp.attrs.map(astForAttribute)
+  }
+
+  private def astForAttribute(attribute: PhpAttribute): Ast = {
+    val name     = attribute.name
+    val fullName = composeMethodFullName(name.name, true)
+    val _annotationNode =
+      annotationNode(attribute, code = name.name, attribute.name.name, fullName)
+    val argsAst = attribute.args.map(astForCallArg)
+    annotationAst(_annotationNode, argsAst)
   }
 
   private def stmtBodyBlockAst(stmt: PhpStmtWithBody): Ast = {
@@ -256,10 +278,11 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
     val byRefCodePrefix = if (param.byRef) "&" else ""
     val code            = s"$byRefCodePrefix$$${param.name}"
     val paramNode = parameterInNode(param, param.name, code, index, param.isVariadic, evaluationStrategy, typeFullName)
+    val attributeAsts = param.attributeGroups.flatMap(astForAttributeGroup)
 
     scope.addToScope(param.name, paramNode)
 
-    Ast(paramNode)
+    Ast(paramNode).withChildren(attributeAsts)
   }
 
   private def astForExpr(expr: PhpExpr): Ast = {
@@ -395,12 +418,19 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
   }
 
   private def astForTryStmt(stmt: PhpTryStmt): Ast = {
-    val tryBody     = stmtBodyBlockAst(stmt)
-    val catches     = stmt.catches.map(astForCatchStmt)
-    val finallyBody = stmt.finallyStmt.map(fin => stmtBodyBlockAst(fin))
+    val tryBody = stmtBodyBlockAst(stmt)
+
+    val catches = stmt.catches.map { catchStmt =>
+      val catchNode = controlStructureNode(catchStmt, ControlStructureTypes.CATCH, "catch")
+      Ast(catchNode).withChild(astForCatchStmt(catchStmt))
+    }
+
+    val finallyBody = stmt.finallyStmt.map { fin =>
+      val finallyNode = controlStructureNode(fin, ControlStructureTypes.FINALLY, "finally")
+      Ast(finallyNode).withChild(stmtBodyBlockAst(fin))
+    }
 
     val tryNode = controlStructureNode(stmt, ControlStructureTypes.TRY, "try { ... }")
-
     tryCatchAst(tryNode, tryBody, catches, finallyBody)
   }
 
@@ -617,7 +647,7 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
       DispatchTypes.DYNAMIC_DISPATCH,
       Some(currentCallSignature),
       Some(TypeConstants.Any)
-    );
+    )
     val currentCallAst = callAst(currentCallNode, base = Option(iteratorIdentifierAst))
 
     val valueAst = if (stmt.assignByRef) {
@@ -686,7 +716,7 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
           Ast(local) :: assignmentAst.toList
 
         case other =>
-          logger.warn(s"Unexpected static variable type ${other} in $filename")
+          logger.warn(s"Unexpected static variable type $other in $filename")
           Nil
       }
     }
@@ -697,7 +727,7 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
     Ast()
   }
 
-  def codeForClassStmt(stmt: PhpClassLikeStmt, name: PhpNameExpr): String = {
+  private def codeForClassStmt(stmt: PhpClassLikeStmt, name: PhpNameExpr): String = {
     // TODO Extend for anonymous classes
     val extendsString = stmt.extendsNames match {
       case Nil   => ""
@@ -723,16 +753,16 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
         prependNamespacePrefix(name.name)
       }
 
-    val typeDecl = typeDeclNode(stmt, name.name, fullName, filename, code, inherits = inheritsFrom)
-
+    val typeDecl                 = typeDeclNode(stmt, name.name, fullName, filename, code, inherits = inheritsFrom)
     val createDefaultConstructor = stmt.hasConstructor
 
     scope.pushNewScope(typeDecl)
-    val bodyStmts = astsForClassLikeBody(stmt, stmt.stmts, createDefaultConstructor)
-    val modifiers = stmt.modifiers.map(newModifierNode).map(Ast(_))
+    val bodyStmts      = astsForClassLikeBody(stmt, stmt.stmts, createDefaultConstructor)
+    val modifiers      = stmt.modifiers.map(newModifierNode).map(Ast(_))
+    val annotationAsts = stmt.attributeGroups.flatMap(astForAttributeGroup)
     scope.popScope()
 
-    Ast(typeDecl).withChildren(modifiers).withChildren(bodyStmts)
+    Ast(typeDecl).withChildren(modifiers).withChildren(bodyStmts).withChildren(annotationAsts)
   }
 
   private def astForStaticAndConstInits: Option[Ast] = {
@@ -967,18 +997,14 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
 
     val fullName = call.target match {
       // Static method call with a known class name
-      case Some(nameExpr: PhpNameExpr) if call.isStatic => {
+      case Some(nameExpr: PhpNameExpr) if call.isStatic =>
         if (nameExpr.name == "self") composeMethodFullName(name, call.isStatic)
-        else s"${nameExpr.name}${StaticMethodDelimiter}$name"
-      }
-
+        else s"${nameExpr.name}$StaticMethodDelimiter$name"
       case Some(expr) =>
         s"$UnresolvedNamespace\\$codePrefix"
-
       case None if PhpBuiltins.FuncNames.contains(name) =>
         // No signature/namespace for MFN for builtin functions to ensure stable names as type info improves.
         name
-
       // Function call
       case None =>
         composeMethodFullName(name, call.isStatic)
@@ -1061,8 +1087,8 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
           .sortBy(_.argumentIndex)
 
       if (args.size != 2) {
-        val position = s"${line(assignment).getOrElse("")}:${filename}"
-        logger.warn(s"Expected 2 call args for emptyArrayDimAssign. Not resetting code: ${position}")
+        val position = s"${line(assignment).getOrElse("")}:$filename"
+        logger.warn(s"Expected 2 call args for emptyArrayDimAssign. Not resetting code: $position")
       } else {
         val codeOverride = s"${args.head.code}[] = ${args.last.code}"
         astRoot.code(codeOverride)
@@ -1427,7 +1453,8 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
       closureExpr.returnByRef,
       namespacedName = None,
       isClassMethod = closureExpr.isStatic,
-      closureExpr.attributes
+      closureExpr.attributes,
+      List.empty[PhpAttributeGroup]
     )
     val methodAst = astForMethodDecl(methodDecl, localsForUses.map(Ast(_)), Option(methodName))
 
@@ -1488,7 +1515,7 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
     // Init node
     val initArgs      = expr.args.map(astForCallArg)
     val initSignature = s"$UnresolvedSignature(${initArgs.size})"
-    val initFullName  = s"$className$InstanceMethodDelimiter${ConstructorMethodName}"
+    val initFullName  = s"$className$InstanceMethodDelimiter$ConstructorMethodName"
     val initCode      = s"$initFullName(${initArgs.map(_.rootCodeOrEmpty).mkString(",")})"
     val initCallNode = callNode(
       expr,
@@ -1580,8 +1607,8 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
         callAst(accessNode, variableAst :: dimensionAst :: Nil)
 
       case None =>
-        val errorPosition = s"${variableCode}:${line(expr).getOrElse("")}:${filename}"
-        logger.error(s"ArrayDimFetchExpr without dimensions should be handled in assignment: ${errorPosition}")
+        val errorPosition = s"$variableCode:${line(expr).getOrElse("")}:$filename"
+        logger.error(s"ArrayDimFetchExpr without dimensions should be handled in assignment: $errorPosition")
         Ast()
     }
   }
@@ -1701,6 +1728,16 @@ class AstCreator(filename: String, phpAst: PhpFile)(implicit withSchemaValidatio
   protected def lineEnd(phpNode: PhpNode): Option[Integer]   = None
   protected def columnEnd(phpNode: PhpNode): Option[Integer] = None
   protected def code(phpNode: PhpNode): String               = "" // Sadly, the Php AST does not carry any code fields
+
+  override protected def offset(phpNode: PhpNode): Option[(Int, Int)] = {
+    Option.when(!disableFileContent) {
+      val startPos =
+        new String(fileContent.get.getBytes.slice(0, phpNode.attributes.startFilePos), StandardCharsets.UTF_8).length
+      val endPos =
+        new String(fileContent.get.getBytes.slice(0, phpNode.attributes.endFilePos), StandardCharsets.UTF_8).length
+      (startPos, endPos)
+    }
+  }
 }
 
 object AstCreator {
@@ -1723,9 +1760,9 @@ object AstCreator {
     val Unknown: String      = "UNKNOWN"
     val Closure: String      = "__closure"
     val Class: String        = "class"
-    val True: String         = "true";
-    val False: String        = "false";
-    val NullName: String     = "null";
+    val True: String         = "true"
+    val False: String        = "false"
+    val NullName: String     = "null"
 
     def isBoolean(name: String): Boolean = {
       List(True, False).contains(name)

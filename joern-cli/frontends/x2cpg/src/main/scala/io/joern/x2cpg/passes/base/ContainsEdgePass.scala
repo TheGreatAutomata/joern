@@ -1,6 +1,6 @@
 package io.joern.x2cpg.passes.base
 
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes._
 import io.shiftleft.codepropertygraph.generated.{EdgeTypes, NodeTypes}
 import io.shiftleft.passes.ConcurrentWriterCpgPass
@@ -15,7 +15,7 @@ class ContainsEdgePass(cpg: Cpg) extends ConcurrentWriterCpgPass[AstNode](cpg) {
   import ContainsEdgePass._
 
   override def generateParts(): Array[AstNode] =
-    cpg.graph.nodes(sourceTypes: _*).asScala.map(_.asInstanceOf[AstNode]).toArray
+    cpg.graph.nodes(sourceTypes*).asScala.map(_.asInstanceOf[AstNode]).toArray
 
   override def runOnPart(dstGraph: DiffGraphBuilder, source: AstNode): Unit = {
     // AST is assumed to be a tree. If it contains cycles, then this will give a nice endless loop with OOM

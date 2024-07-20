@@ -3,7 +3,7 @@ package io.joern.x2cpg
 import better.files.File
 import io.joern.x2cpg.X2Cpg.{applyDefaultOverlays, withErrorsToConsole}
 import io.joern.x2cpg.layers.{Base, CallGraph, ControlFlow, TypeRelations}
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.layers.{LayerCreator, LayerCreatorContext}
 import org.slf4j.LoggerFactory
 import overflowdb.Config
@@ -91,7 +91,7 @@ trait DependencyDownloadConfig[R <: X2CpgConfig[R]] { this: R =>
 }
 
 object DependencyDownloadConfig {
-  def parserOptions[R <: X2CpgConfig[R] with DependencyDownloadConfig[R]]: OParser[_, R] = {
+  def parserOptions[R <: X2CpgConfig[R] & DependencyDownloadConfig[R]]: OParser[?, R] = {
     val builder = OParser.builder[R]
     import builder.*
     OParser.sequence(
@@ -113,18 +113,39 @@ object DependencyDownloadConfig {
   * @param frontend
   *   the frontend to use for CPG creation
   */
-abstract class X2CpgMain[T <: X2CpgConfig[T], X <: X2CpgFrontend[_]](val cmdLineParser: OParser[Unit, T], frontend: X)(
+abstract class X2CpgMain[T <: X2CpgConfig[T], X <: X2CpgFrontend[?]](val cmdLineParser: OParser[Unit, T], frontend: X)(
   implicit defaultConfig: T
 ) {
+
+  private val logger = LoggerFactory.getLogger(classOf[X2CpgMain[T, X]])
+
+  private def logVersionAndArgs(args: Array[String]): Unit = {
+    val frontendName = frontend.getClass.getSimpleName.stripSuffix("$")
+    val joernVersion =
+      // We only have a proper version there if joern was build using sbt assembly. Otherwise, it might be null.
+      Option(frontend.getClass.getPackage.getImplementationVersion).map(v => s"v$v").getOrElse("local build")
+    val logText = s"Executing $frontendName ($joernVersion) with arguments: ${args.mkString(" ")}"
+    logger.debug(logText)
+  }
+
+  private def logOutputPath(outputPath: String): Unit = {
+    if (X2CpgConfig.defaultOutputPath == outputPath) {
+      // We only log the output path of no explicit path was given by the user.
+      // Otherwise, the user obviously knows the path.
+      logger.info(s"The resulting CPG will be stored at ${File(outputPath)}")
+    }
+  }
 
   /** method that evaluates frontend with configuration
     */
   def run(config: T, frontend: X): Unit
 
   def main(args: Array[String]): Unit = {
+    logVersionAndArgs(args)
     X2Cpg.parseCommandLine(args, cmdLineParser, defaultConfig) match {
       case Some(config) =>
         try {
+          logOutputPath(config.outputPath)
           run(config, frontend)
         } catch {
           case ex: Throwable =>
@@ -142,7 +163,7 @@ abstract class X2CpgMain[T <: X2CpgConfig[T], X <: X2CpgFrontend[_]](val cmdLine
 
 /** Trait that represents a CPG generator, where T is the frontend configuration class.
   */
-trait X2CpgFrontend[T <: X2CpgConfig[_]] {
+trait X2CpgFrontend[T <: X2CpgConfig[?]] {
 
   /** Create a CPG according to given configuration. Returns CPG wrapped in a `Try`, making it possible to detect and
     * inspect exceptions in CPG generation. To be provided by the frontend.
@@ -217,7 +238,7 @@ object X2Cpg {
     */
   def parseCommandLine[R <: X2CpgConfig[R]](
     args: Array[String],
-    frontendSpecific: OParser[_, R],
+    frontendSpecific: OParser[?, R],
     initialConf: R
   ): Option[R] = {
     val parser = commandLineParser(frontendSpecific)
@@ -226,7 +247,7 @@ object X2Cpg {
 
   /** Create a command line parser that can be extended to add options specific for the frontend.
     */
-  private def commandLineParser[R <: X2CpgConfig[R]](frontendSpecific: OParser[_, R]): OParser[_, R] = {
+  private def commandLineParser[R <: X2CpgConfig[R]](frontendSpecific: OParser[?, R]): OParser[?, R] = {
     val builder = OParser.builder[R]
     import builder.*
     OParser.sequence(
@@ -290,7 +311,7 @@ object X2Cpg {
   /** Apply function `applyPasses` to a newly created CPG. The CPG is wrapped in a `Try` and returned. On failure, the
     * CPG is ensured to be closed.
     */
-  def withNewEmptyCpg[T <: X2CpgConfig[_]](outPath: String, config: T)(applyPasses: (Cpg, T) => Unit): Try[Cpg] = {
+  def withNewEmptyCpg[T <: X2CpgConfig[?]](outPath: String, config: T)(applyPasses: (Cpg, T) => Unit): Try[Cpg] = {
     val outputPath = if (outPath != "") Some(outPath) else None
     Try {
       val cpg = newEmptyCpg(outputPath)
@@ -308,7 +329,7 @@ object X2Cpg {
   /** Given a function that receives a configuration and returns an arbitrary result type wrapped in a `Try`, evaluate
     * the function, printing errors to the console.
     */
-  def withErrorsToConsole[T <: X2CpgConfig[_]](config: T)(f: T => Try[_]): Try[_] = {
+  def withErrorsToConsole[T <: X2CpgConfig[?]](config: T)(f: T => Try[?]): Try[?] = {
     f(config) match {
       case Failure(exception) =>
         exception.printStackTrace()

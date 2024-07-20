@@ -86,7 +86,8 @@ class AstCreator(
   javaParserAst: CompilationUnit,
   fileContent: Option[String],
   global: Global,
-  val symbolSolver: JavaSymbolSolver
+  val symbolSolver: JavaSymbolSolver,
+  protected val keepTypeArguments: Boolean
 )(implicit val withSchemaValidation: ValidationMode)
     extends AstCreatorBase(filename)
     with AstNodeBuilder[Node, AstCreator]
@@ -98,8 +99,9 @@ class AstCreator(
 
   private[astcreation] val scope = Scope()
 
-  private[astcreation] val typeInfoCalc: TypeInfoCalculator = TypeInfoCalculator(global, symbolSolver)
-  private[astcreation] val bindingTableCache                = mutable.HashMap.empty[String, BindingTable]
+  private[astcreation] val typeInfoCalc: TypeInfoCalculator =
+    TypeInfoCalculator(global, symbolSolver, keepTypeArguments)
+  private[astcreation] val bindingTableCache = mutable.HashMap.empty[String, BindingTable]
 
   /** Entry point of AST creation. Translates a compilation unit created by JavaParser into a DiffGraph containing the
     * corresponding CPG AST.
@@ -309,7 +311,7 @@ class AstCreator(
       scope.lookupType(annotation.getNameAsString)
     case namedExpr: NodeWithName[_] =>
       scope.lookupVariableOrType(namedExpr.getNameAsString)
-    case namedExpr: NodeWithSimpleName[_] =>
+    case namedExpr: NodeWithSimpleName[_] if !expr.isMethodCallExpr =>
       scope.lookupVariableOrType(namedExpr.getNameAsString)
     // JavaParser doesn't handle literals well for some reason
     case _: BooleanLiteralExpr   => Some("boolean")

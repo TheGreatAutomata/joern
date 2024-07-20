@@ -1,14 +1,20 @@
 package io.joern.pysrc2cpg
 
-import io.joern.pysrc2cpg.memop.{Load, MemoryOperation, Store}
+import io.joern.pysrc2cpg.memop.Load
+import io.joern.pysrc2cpg.memop.MemoryOperation
+import io.joern.pysrc2cpg.memop.Store
 import io.joern.pythonparser.ast
-import io.shiftleft.codepropertygraph.generated.nodes._
-import io.shiftleft.codepropertygraph.generated.{ControlStructureTypes, DispatchTypes, Operators}
+import io.joern.x2cpg.ValidationMode
+import io.shiftleft.codepropertygraph.generated.ControlStructureTypes
+import io.shiftleft.codepropertygraph.generated.DispatchTypes
+import io.shiftleft.codepropertygraph.generated.Operators
+import io.shiftleft.codepropertygraph.generated.nodes.*
 
-import scala.collection.immutable.{::, Nil}
+import scala.collection.immutable.::
+import scala.collection.immutable.Nil
 import scala.collection.mutable
 
-trait PythonAstVisitorHelpers { this: PythonAstVisitor =>
+trait PythonAstVisitorHelpers(implicit withSchemaValidation: ValidationMode) { this: PythonAstVisitor =>
 
   protected def codeOf(node: NewNode): String = {
     node.asInstanceOf[AstNodeNew].code
@@ -47,16 +53,46 @@ trait PythonAstVisitorHelpers { this: PythonAstVisitor =>
     orElseBlock: Iterable[NewNode],
     lineAndColumn: LineAndColumn
   ): NewNode = {
-    val controlStructureNode =
-      nodeBuilder.controlStructureNode("try: ...", ControlStructureTypes.TRY, lineAndColumn)
+    val controlStructureNode = nodeBuilder.controlStructureNode("try: ...", ControlStructureTypes.TRY, lineAndColumn)
 
-    val bodyBlockNode     = createBlock(body, lineAndColumn)
-    val handlersBlockNode = createBlock(handlers, lineAndColumn)
-    val finalBlockNode    = createBlock(finalBlock, lineAndColumn)
-    val orElseBlockNode   = createBlock(orElseBlock, lineAndColumn)
+    val bodyBlockNode      = createBlock(body, lineAndColumn).asInstanceOf[NewBlock]
+    val handlersBlockNodes = handlers.map(x => createBlock(Iterable(x), lineAndColumn).asInstanceOf[NewBlock]).toSeq
 
-    addAstChildNodes(controlStructureNode, 1, bodyBlockNode, handlersBlockNode, finalBlockNode, orElseBlockNode)
+    val orElseBlockSeq = orElseBlock.toSeq
+    val finalBlockSeq  = finalBlock.toSeq
 
+    val elseBlockNodes = if (orElseBlockSeq.nonEmpty) {
+      val orElseBlockNode = createBlock(orElseBlockSeq, lineAndColumn).asInstanceOf[NewBlock]
+      Seq(orElseBlockNode)
+    } else { Seq.empty }
+
+    val finallyBlockNodes = if (finalBlockSeq.nonEmpty) {
+      val finalBlockNode = createBlock(finalBlockSeq, lineAndColumn).asInstanceOf[NewBlock]
+      Seq(finalBlockNode)
+    } else { Seq.empty }
+
+    val handlersAsts = handlersBlockNodes.map { handlerNode =>
+      val controlStructureNode =
+        nodeBuilder.controlStructureNode(codeOf(handlerNode), ControlStructureTypes.CATCH, lineAndColumn)
+      addAstChildNodes(controlStructureNode, 1, Seq(handlerNode))
+      controlStructureNode
+    }
+
+    val finallyAsts = finallyBlockNodes.map { finallyNode =>
+      val controlStructureNode =
+        nodeBuilder.controlStructureNode(codeOf(finallyNode), ControlStructureTypes.FINALLY, lineAndColumn)
+      addAstChildNodes(controlStructureNode, 1, Seq(finallyNode))
+      controlStructureNode
+    }
+
+    val elseAsts = elseBlockNodes.map { elseNode =>
+      val controlStructureNode =
+        nodeBuilder.controlStructureNode(codeOf(elseNode), ControlStructureTypes.ELSE, lineAndColumn)
+      addAstChildNodes(controlStructureNode, 1, Seq(elseNode))
+      controlStructureNode
+    }
+
+    addAstChildNodes(controlStructureNode, 1, Seq(bodyBlockNode) ++ handlersAsts ++ elseAsts ++ finallyAsts)
     controlStructureNode
   }
 

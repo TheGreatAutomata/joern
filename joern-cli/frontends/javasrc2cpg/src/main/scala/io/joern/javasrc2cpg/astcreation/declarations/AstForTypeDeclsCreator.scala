@@ -92,7 +92,7 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
 
   def astForAnonymousClassDecl(
     expr: ObjectCreationExpr,
-    body: List[BodyDeclaration[_]],
+    body: List[BodyDeclaration[?]],
     typeName: String,
     typeFullName: Option[String],
     baseTypeFullName: Option[String]
@@ -161,7 +161,7 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
     astForTypeDeclaration(localClassDecl.getClassDeclaration, fullNameOverride = Some(fullName))
   }
 
-  def astForTypeDeclaration(typeDeclaration: TypeDeclaration[_], fullNameOverride: Option[String] = None): Ast = {
+  def astForTypeDeclaration(typeDeclaration: TypeDeclaration[?], fullNameOverride: Option[String] = None): Ast = {
     val isInterface = typeDeclaration match {
       case classDeclaration: ClassOrInterfaceDeclaration => classDeclaration.isInterface
       case _                                             => false
@@ -270,7 +270,7 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
   }
 
   private def getTypeDeclNameAndFullName(
-    typeDecl: TypeDeclaration[_],
+    typeDecl: TypeDeclaration[?],
     fullNameOverride: Option[String]
   ): (String, String) = {
     val resolvedType    = tryWithSafeStackOverflow(typeDecl.resolve()).toOption
@@ -283,7 +283,7 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
 
   private def astsForTypeDeclMembers(
     originNode: Node,
-    members: List[BodyDeclaration[_]],
+    members: List[BodyDeclaration[?]],
     isInterface: Boolean,
     fullNameOverride: Option[String]
   ): List[Ast] = {
@@ -546,7 +546,7 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
     Ast(valueNode)
   }
 
-  private def modifiersForTypeDecl(typ: TypeDeclaration[_], isInterface: Boolean): List[NewModifier] = {
+  private def modifiersForTypeDecl(typ: TypeDeclaration[?], isInterface: Boolean): List[NewModifier] = {
     val accessModifierType = if (typ.isPublic) {
       Some(ModifierTypes.PUBLIC)
     } else if (typ.isPrivate) {
@@ -568,34 +568,16 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
     // TODO: Should be able to find expected type here
     val annotations = fieldDeclaration.getAnnotations
 
-    // variable can be declared with generic type, so we need to get rid of the <> part of it to get the package information
-    // and append the <> when forming the typeFullName again
-    // Ex - private Consumer<String, Integer> consumer;
-    // From Consumer<String, Integer> we need to get to Consumer so splitting it by '<' and then combining with '<' to
-    // form typeFullName as Consumer<String, Integer>
+    val rawTypeName = Util.stripGenericTypes(v.getTypeAsString)
 
-    val typeFullNameWithoutGenericSplit = typeInfoCalc
+    val typeFullName = typeInfoCalc
       .fullName(v.getType)
-      .orElse(scope.lookupType(v.getTypeAsString))
-      .getOrElse(s"${Defines.UnresolvedNamespace}.${v.getTypeAsString}")
-    val typeFullName = {
-      // Check if the typeFullName is unresolved and if it has generic information to resolve the typeFullName
-      if (
-        typeFullNameWithoutGenericSplit
-          .contains(Defines.UnresolvedNamespace) && v.getTypeAsString.contains(Defines.LeftAngularBracket)
-      ) {
-        val splitByLeftAngular = v.getTypeAsString.split(Defines.LeftAngularBracket)
-        scope.lookupType(splitByLeftAngular.head) match {
-          case Some(foundType) =>
-            foundType + splitByLeftAngular
-              .slice(1, splitByLeftAngular.size)
-              .mkString(Defines.LeftAngularBracket, Defines.LeftAngularBracket, "")
-          case None => typeFullNameWithoutGenericSplit
-        }
-      } else typeFullNameWithoutGenericSplit
-    }
-    val name           = v.getName.toString
-    val node           = memberNode(v, name, s"$typeFullName $name", typeFullName)
+      .orElse(scope.lookupType(rawTypeName))
+      .getOrElse(s"${Defines.UnresolvedNamespace}.$rawTypeName")
+
+    val name = v.getName.toString
+    // Use type name without generics stripped in code
+    val node           = memberNode(v, name, s"${v.getTypeAsString} $name", typeFullName)
     val memberAst      = Ast(node)
     val annotationAsts = annotations.asScala.map(astForAnnotationExpr)
 
@@ -628,7 +610,7 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
   }
 
   private def createTypeDeclNode(
-    typ: TypeDeclaration[_],
+    typ: TypeDeclaration[?],
     astParentType: String,
     astParentFullName: String,
     isInterface: Boolean,
@@ -660,7 +642,7 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
     typeDeclNode(typ, name, fullName, filename, code, astParentType, astParentFullName, baseTypeFullNames)
   }
 
-  private def codeForTypeDecl(typ: TypeDeclaration[_], isInterface: Boolean): String = {
+  private def codeForTypeDecl(typ: TypeDeclaration[?], isInterface: Boolean): String = {
     val codeBuilder = new mutable.StringBuilder()
     if (typ.isPublic) {
       codeBuilder.append("public ")
@@ -696,7 +678,7 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
     newIdentifierNode(name, typeFullName)
   }
 
-  private def addTypeDeclTypeParamsToScope(typ: TypeDeclaration[_]): Unit = {
+  private def addTypeDeclTypeParamsToScope(typ: TypeDeclaration[?]): Unit = {
     tryWithSafeStackOverflow(typ.resolve()).map(_.getTypeParameters.asScala) match {
       case Success(resolvedTypeParams) =>
         resolvedTypeParams

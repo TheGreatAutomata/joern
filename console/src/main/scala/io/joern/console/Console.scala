@@ -2,12 +2,12 @@ package io.joern.console
 
 import better.files.File
 import dotty.tools.repl.State
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.cpgloading.CpgLoader
 import io.joern.console.cpgcreation.ImportCode
 import io.joern.console.workspacehandling.{Project, WorkspaceLoader, WorkspaceManager}
 import io.joern.x2cpg.X2Cpg.defaultOverlayCreators
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.cpgloading.CpgLoader
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.dotextension.ImageViewer
@@ -29,7 +29,7 @@ class Console[T <: Project](loader: WorkspaceLoader[T], baseDir: File = File.cur
   def config: ConsoleConfig = _config
   def console: Console[T]   = this
 
-  protected var workspaceManager: WorkspaceManager[T] = _
+  protected var workspaceManager: WorkspaceManager[T] = scala.compiletime.uninitialized
   switchWorkspace(baseDir.path.resolve("workspace").toString)
   protected def workspacePathName: String = workspaceManager.getPath
 
@@ -411,7 +411,7 @@ class Console[T <: Project](loader: WorkspaceLoader[T], baseDir: File = File.cur
     val appliedOverlays = io.shiftleft.semanticcpg.Overlays.appliedOverlays(cpg)
     if (appliedOverlays.isEmpty) {
       report("Adding default overlays to base CPG")
-      _runAnalyzer(defaultOverlayCreators(): _*)
+      _runAnalyzer(defaultOverlayCreators()*)
     }
     cpg
   }
@@ -442,7 +442,7 @@ class Console[T <: Project](loader: WorkspaceLoader[T], baseDir: File = File.cur
 
   protected def runCreator(creator: LayerCreator, overlayDirName: Option[String]): Unit = {
     val context = new LayerCreatorContext(cpg, overlayDirName)
-    creator.run(context, storeUndoInfo = true)
+    creator.run(context)
   }
 
   // We still tie the project name to the input path here

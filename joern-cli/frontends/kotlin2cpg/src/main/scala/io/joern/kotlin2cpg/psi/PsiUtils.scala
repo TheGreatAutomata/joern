@@ -1,13 +1,11 @@
 package io.joern.kotlin2cpg.psi
 
 import org.jetbrains.kotlin.com.intellij.psi.PsiElement
-import org.jetbrains.kotlin.psi.{
-  KtDestructuringDeclaration,
-  KtDestructuringDeclarationEntry,
-  KtElement,
-  KtObjectDeclaration,
-  KtTreeVisitorVoid
-}
+import org.jetbrains.kotlin.psi.KtDestructuringDeclaration
+import org.jetbrains.kotlin.psi.KtDestructuringDeclarationEntry
+import org.jetbrains.kotlin.psi.KtElement
+import org.jetbrains.kotlin.psi.KtObjectDeclaration
+import org.jetbrains.kotlin.psi.KtTreeVisitorVoid
 
 import scala.jdk.CollectionConverters.CollectionHasAsScala
 
@@ -18,8 +16,8 @@ object PsiUtils {
     expr.getEntries.asScala.filterNot(_.getText == underscore).toSeq
   }
 
-  def objectIdxMaybe(psiElem: PsiElement, containing: PsiElement) = {
-    class ForEachTreeVisitor(block: (KtElement) => Unit) extends KtTreeVisitorVoid {
+  def objectIdxMaybe(psiElem: PsiElement, containing: PsiElement): Option[Int] = {
+    class ForEachTreeVisitor(block: KtElement => Unit) extends KtTreeVisitorVoid {
       override def visitKtElement(element: KtElement): Unit = {
         if (element != null) {
           super.visitKtElement(element)
@@ -30,12 +28,9 @@ object PsiUtils {
 
     val buf = scala.collection.mutable.ListBuffer.empty[KtObjectDeclaration]
     val visitor =
-      new ForEachTreeVisitor({ elem =>
-        elem match {
-          case e: KtObjectDeclaration =>
-            buf.append(e)
-          case _ =>
-        }
+      new ForEachTreeVisitor({
+        case e: KtObjectDeclaration => buf.append(e)
+        case _                      =>
       })
     visitor.visitKtElement(containing.asInstanceOf[KtElement])
     var outIdx: Option[Int] = None
@@ -45,5 +40,3 @@ object PsiUtils {
     outIdx
   }
 }
-
-class PsiUtils {}

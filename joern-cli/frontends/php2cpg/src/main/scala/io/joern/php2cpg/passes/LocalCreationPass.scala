@@ -1,7 +1,7 @@
 package io.joern.php2cpg.passes
 
 import io.shiftleft.passes.ConcurrentWriterCpgPass
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.EdgeTypes
 import io.shiftleft.codepropertygraph.generated.nodes.{
   AstNode,
@@ -21,7 +21,7 @@ import io.joern.x2cpg.AstNodeBuilder
 import io.shiftleft.codepropertygraph.generated.PropertyNames
 
 object LocalCreationPass {
-  def allLocalCreationPasses(cpg: Cpg): Iterator[LocalCreationPass[_ <: AstNode]] =
+  def allLocalCreationPasses(cpg: Cpg): Iterator[LocalCreationPass[? <: AstNode]] =
     Iterator(new NamespaceLocalPass(cpg), new MethodLocalPass(cpg))
 }
 

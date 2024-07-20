@@ -1,6 +1,6 @@
 package io.joern.rubysrc2cpg.querying
 
-import io.joern.rubysrc2cpg.astcreation.RubyIntermediateAst.SimpleIdentifier
+import io.joern.rubysrc2cpg.passes.GlobalTypes.kernelPrefix
 import io.joern.rubysrc2cpg.testfixtures.RubyCode2CpgFixture
 import io.shiftleft.codepropertygraph.generated.{ControlStructureTypes, Operators}
 import io.shiftleft.codepropertygraph.generated.nodes.{Block, Call, Identifier, Literal}
@@ -28,6 +28,30 @@ class ControlStructureTests extends RubyCode2CpgFixture {
     assignment.lineNumber shouldBe Some(4)
   }
 
+  "begin-end-until should be lowered as a do-while loop" in {
+
+    val cpg = code("""
+        |i = 0
+        |num = 5
+        |begin
+        |  num = i + 3
+        |end until i < num
+        |puts num
+        |""".stripMargin)
+
+    val List(whileNode)  = cpg.doBlock.l
+    val List(whileCond)  = whileNode.condition.isCall.l
+    val List(assignment) = whileNode.astChildren.isBlock.assignment.l
+
+    whileCond.methodFullName shouldBe Operators.lessThan
+    whileCond.code shouldBe "i < num"
+    whileCond.lineNumber shouldBe Some(6)
+
+    assignment.code shouldBe "num = i + 3"
+    assignment.lineNumber shouldBe Some(5)
+
+  }
+
   "`until-end` statement is represented by a negated `WHILE` CONTROL_STRUCTURE node" in {
     val cpg = code("""
         |x = 1
@@ -50,6 +74,25 @@ class ControlStructureTests extends RubyCode2CpgFixture {
 
     assignment.code shouldBe "x = x - 1"
     assignment.lineNumber shouldBe Some(4)
+  }
+
+  "a break expression nested in a control structure should be represented" in {
+    val cpg = code("""
+        |x = 0
+        |num  = -1
+        |loop do
+        |  num = x + 1
+        |  x = x + 1
+        |  if x > 10
+        |    break
+        |  end
+        |end
+        |puts num
+        |""".stripMargin)
+
+    val List(breakNode) = cpg.break.l
+    breakNode.code shouldBe "break"
+    breakNode.lineNumber shouldBe Some(8)
   }
 
   "`if-end` statement is represented by an `IF` CONTROL_STRUCTURE node" in {
@@ -250,9 +293,20 @@ class ControlStructureTests extends RubyCode2CpgFixture {
     whileCond.code shouldBe "true"
     whileCond.lineNumber shouldBe Some(2)
 
-    putsHi.methodFullName shouldBe "__builtin:puts"
+    putsHi.methodFullName shouldBe s"$kernelPrefix:puts"
     putsHi.code shouldBe "puts 'hi'"
     putsHi.lineNumber shouldBe Some(2)
+  }
+
+  "rescue nil is represented by a TRY CONTROL_STRUCTURE node" in {
+    val cpg = code("""
+                     |def test1
+                     |  @dev.close rescue nil
+                     |end
+                     |""".stripMargin)
+    val List(rescueNode) = cpg.method("test1").tryBlock.l
+    rescueNode.controlStructureType shouldBe ControlStructureTypes.TRY
+    val List(body, rescueBody, implicitReturnBody) = rescueNode.astChildren.l
   }
 
   "`begin ... rescue ... end is represented by a `TRY` CONTROL_STRUCTURE node" in {

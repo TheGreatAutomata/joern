@@ -11,7 +11,7 @@ import scala.util.Try
   */
 object ConcurrentTaskUtil {
 
-  val MAX_POOL_SIZE = Runtime.getRuntime.availableProcessors()
+  private val MAX_POOL_SIZE = Runtime.getRuntime.availableProcessors()
 
   /** Uses a thread pool with a limited number of active threads executing a task at any given point. This is effective
     * when tasks may require large amounts of memory, or single tasks are too short lived.
@@ -50,13 +50,16 @@ object ConcurrentTaskUtil {
     * @return
     *   an array of the executed tasks as either a success or failure.
     */
-  def runUsingSpliterator[V](tasks: Iterator[() => V]): List[Try[V]] = {
-    StreamSupport
-      .stream(Spliterators.spliteratorUnknownSize(tasks.asJava, Spliterator.NONNULL), /* parallel */ true)
-      .map(task => Try(task.apply()))
-      .collect(Collectors.toList())
-      .asScala
-      .toList
+  def runUsingSpliterator[V](tasks: Iterator[() => V]): Seq[Try[V]] = {
+    scala.collection.immutable.ArraySeq
+      .ofRef(
+        java.util.Arrays
+          .stream(tasks.toArray)
+          .parallel()
+          .map(task => Try(task.apply()))
+          .toArray
+      )
+      .asInstanceOf[scala.collection.immutable.ArraySeq[Try[V]]]
   }
 
 }

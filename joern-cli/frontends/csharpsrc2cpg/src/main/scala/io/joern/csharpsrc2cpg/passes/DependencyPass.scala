@@ -2,14 +2,14 @@ package io.joern.csharpsrc2cpg.passes
 
 import better.files.File
 import io.joern.semanticcpg.utils.SecureXmlParsing
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.NewDependency
 import io.shiftleft.passes.ForkJoinParallelCpgPass
 import org.slf4j.LoggerFactory
 
 import scala.util.{Failure, Try}
 
-class DependencyPass(cpg: Cpg, buildFiles: List[String], registerPackageId: String => _)
+class DependencyPass(cpg: Cpg, buildFiles: List[String], registerPackageId: String => ?)
     extends ForkJoinParallelCpgPass[File](cpg) {
 
   private val logger = LoggerFactory.getLogger(getClass)

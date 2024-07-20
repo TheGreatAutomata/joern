@@ -17,12 +17,17 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
 
   protected def astForTypeAlias(alias: BabelNodeInfo): Ast = {
     val (aliasName, aliasFullName) = calcTypeNameAndFullName(alias)
-    val name = if (hasKey(alias.json, "right")) {
-      typeFor(createBabelNodeInfo(alias.json("right")))
-    } else {
-      typeFor(createBabelNodeInfo(alias.json))
-    }
     registerType(aliasFullName)
+
+    val nameNodeInfo = if (hasKey(alias.json, "right")) {
+      createBabelNodeInfo(alias.json("right"))
+    } else {
+      createBabelNodeInfo(alias.json)
+    }
+    val nameTpe = typeFor(nameNodeInfo)
+    val name = if (nameTpe.contains("{") || nameTpe.contains("(")) {
+      calcTypeNameAndFullName(nameNodeInfo)._1
+    } else nameTpe
 
     val astParentType     = methodAstParentStack.head.label
     val astParentFullName = methodAstParentStack.head.properties("FULL_NAME").toString
@@ -51,13 +56,13 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
     }
 
     // adding all class methods / functions and uninitialized, non-static members
-    val membersAndInitializers = (alias.node match {
+    (alias.node match {
       case TSTypeLiteral => classMembersForTypeAlias(alias)
       case ObjectPattern => Try(alias.json("properties").arr).toOption.toSeq.flatten
       case _             => classMembersForTypeAlias(createBabelNodeInfo(alias.json("typeAnnotation")))
     }).filter(member => isClassMethodOrUninitializedMemberOrObjectProperty(member) && !isStaticMember(member))
-      .map(m => astForClassMember(m, aliasTypeDeclNode))
-    Ast(aliasTypeDeclNode).withChildren(membersAndInitializers)
+      .map(m => astForClassMember(m, aliasTypeDeclNode, ignoreInitCalls = true))
+    Ast(aliasTypeDeclNode)
   }
 
   private def isConstructor(json: Value): Boolean = createBabelNodeInfo(json).node match {
@@ -145,8 +150,11 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
     }
 
   private def astsForEnumMember(tsEnumMember: BabelNodeInfo): Seq[Ast] = {
-    val name        = code(tsEnumMember.json("id"))
-    val memberNode_ = memberNode(tsEnumMember, name, tsEnumMember.code, typeFor(tsEnumMember))
+    val name          = code(tsEnumMember.json("id"))
+    val tpe           = typeFor(tsEnumMember)
+    val possibleTypes = Seq(tpe)
+    val typeFullName  = if (Defines.isBuiltinType(tpe)) tpe else Defines.Any
+    val memberNode_   = memberNode(tsEnumMember, name, tsEnumMember.code, typeFullName).possibleTypes(possibleTypes)
     addModifier(memberNode_, tsEnumMember.json)
 
     if (hasKey(tsEnumMember.json, "initializer")) {
@@ -161,9 +169,15 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
     }
   }
 
-  private def astForClassMember(classElement: Value, typeDeclNode: NewTypeDecl): Ast = {
-    val nodeInfo     = createBabelNodeInfo(classElement)
-    val typeFullName = typeFor(nodeInfo)
+  private def astForClassMember(
+    classElement: Value,
+    typeDeclNode: NewTypeDecl,
+    ignoreInitCalls: Boolean = false
+  ): Ast = {
+    val nodeInfo      = createBabelNodeInfo(classElement)
+    val tpe           = typeFor(nodeInfo)
+    val possibleTypes = Seq(tpe)
+    val typeFullName  = if (Defines.isBuiltinType(tpe)) tpe else Defines.Any
     val memberNode_ = nodeInfo.node match {
       case TSDeclareMethod | TSDeclareFunction =>
         val function    = createMethodDefinitionNode(nodeInfo)
@@ -172,6 +186,7 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
         diffGraph.addEdge(bindingNode, function, EdgeTypes.REF)
         addModifier(function, nodeInfo.json)
         memberNode(nodeInfo, function.name, nodeInfo.code, typeFullName, Seq(function.fullName))
+          .possibleTypes(possibleTypes)
       case ClassMethod | ClassPrivateMethod =>
         val function    = createMethodAstAndNode(nodeInfo).methodNode
         val bindingNode = newBindingNode("", "", "")
@@ -179,14 +194,15 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
         diffGraph.addEdge(bindingNode, function, EdgeTypes.REF)
         addModifier(function, nodeInfo.json)
         memberNode(nodeInfo, function.name, nodeInfo.code, typeFullName, Seq(function.fullName))
+          .possibleTypes(possibleTypes)
       case ExpressionStatement if isInitializedMember(classElement) =>
         val memberNodeInfo = createBabelNodeInfo(nodeInfo.json("expression")("left")("property"))
         val name           = memberNodeInfo.code
-        memberNode(nodeInfo, name, nodeInfo.code, typeFullName)
+        memberNode(nodeInfo, name, nodeInfo.code, typeFullName).possibleTypes(possibleTypes)
       case TSPropertySignature | ObjectProperty if hasKey(nodeInfo.json("key"), "name") =>
         val memberNodeInfo = createBabelNodeInfo(nodeInfo.json("key"))
         val name           = memberNodeInfo.json("name").str
-        memberNode(nodeInfo, name, nodeInfo.code, typeFullName)
+        memberNode(nodeInfo, name, nodeInfo.code, typeFullName).possibleTypes(possibleTypes)
       case _ =>
         val name = nodeInfo.node match {
           case ClassProperty        => code(nodeInfo.json("key"))
@@ -194,7 +210,7 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
           // TODO: name field most likely needs adjustment for other Babel AST types
           case _ => nodeInfo.code
         }
-        memberNode(nodeInfo, name, nodeInfo.code, typeFullName)
+        memberNode(nodeInfo, name, nodeInfo.code, typeFullName).possibleTypes(possibleTypes)
     }
 
     addModifier(memberNode_, classElement)
@@ -204,7 +220,7 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
       decoratorAst.root.foreach(diffGraph.addEdge(memberNode_, _, EdgeTypes.AST))
     }
 
-    if (hasKey(nodeInfo.json, "value") && !nodeInfo.json("value").isNull) {
+    if (!ignoreInitCalls && hasKey(nodeInfo.json, "value") && !nodeInfo.json("value").isNull) {
       val lhsAst = astForNode(nodeInfo.json("key"))
       val rhsAst = astForNodeWithFunctionReference(nodeInfo.json("value"))
       val callNode_ =
@@ -491,8 +507,10 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
     val interfaceBodyElements = classMembers(tsInterface, withConstructor = false)
 
     interfaceBodyElements.foreach { classElement =>
-      val nodeInfo     = createBabelNodeInfo(classElement)
-      val typeFullName = typeFor(nodeInfo)
+      val nodeInfo      = createBabelNodeInfo(classElement)
+      val tpe           = typeFor(nodeInfo)
+      val possibleTypes = Seq(tpe)
+      val typeFullName  = if (Defines.isBuiltinType(tpe)) tpe else Defines.Any
       val memberNodes = nodeInfo.node match {
         case TSCallSignatureDeclaration | TSMethodSignature =>
           val functionNode = createMethodDefinitionNode(nodeInfo)
@@ -500,7 +518,10 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
           diffGraph.addEdge(typeDeclNode_, bindingNode, EdgeTypes.BINDS)
           diffGraph.addEdge(bindingNode, functionNode, EdgeTypes.REF)
           addModifier(functionNode, nodeInfo.json)
-          Seq(memberNode(nodeInfo, functionNode.name, nodeInfo.code, typeFullName, Seq(functionNode.fullName)))
+          Seq(
+            memberNode(nodeInfo, functionNode.name, nodeInfo.code, typeFullName, Seq(functionNode.fullName))
+              .possibleTypes(possibleTypes)
+          )
         case _ =>
           val names = nodeInfo.node match {
             case TSPropertySignature | TSMethodSignature =>
@@ -513,7 +534,7 @@ trait AstForTypesCreator(implicit withSchemaValidation: ValidationMode) { this: 
             case _ => Seq(nodeInfo.code)
           }
           names.map { n =>
-            val node = memberNode(nodeInfo, n, nodeInfo.code, typeFullName)
+            val node = memberNode(nodeInfo, n, nodeInfo.code, typeFullName).possibleTypes(possibleTypes)
             addModifier(node, nodeInfo.json)
             node
           }

@@ -7,8 +7,9 @@ libraryDependencies ++= Seq(
   "org.json4s" %% "json4s-jackson" % Versions.json4s,
   "io.shiftleft"     %% "codepropertygraph" % Versions.cpg,
   "com.lihaoyi"      %% "requests"          % Versions.requests,
-  "com.github.scopt" %% "scopt"             % "4.1.0",
-  "org.reflections"   % "reflections"       % "0.10.2",
+  "com.lihaoyi"      %% "upickle"           % Versions.upickle,
+  "com.github.scopt" %% "scopt"             % Versions.scopt,
+  "org.reflections"   % "reflections"       % Versions.reflection,
   "org.scalatest"    %% "scalatest"         % Versions.scalatest % Test
 )
 

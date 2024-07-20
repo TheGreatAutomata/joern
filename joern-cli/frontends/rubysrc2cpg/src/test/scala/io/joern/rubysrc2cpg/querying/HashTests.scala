@@ -3,6 +3,7 @@ package io.joern.rubysrc2cpg.querying
 import io.joern.rubysrc2cpg.passes.Defines.RubyOperators
 import io.joern.rubysrc2cpg.testfixtures.RubyCode2CpgFixture
 import io.shiftleft.codepropertygraph.generated.Operators
+import io.joern.rubysrc2cpg.passes.GlobalTypes.kernelPrefix
 import io.shiftleft.codepropertygraph.generated.nodes.{Call, Identifier, Literal}
 import io.shiftleft.semanticcpg.language.*
 
@@ -34,6 +35,51 @@ class HashTests extends RubyCode2CpgFixture {
     one.code shouldBe "1"
   }
 
+  "`{:x => 1}` is represented by a `hashInitializer` operator call" in {
+    val cpg = code("""
+        |{:x => 1}
+        |""".stripMargin)
+
+    val List(hashCall) = cpg.call.name(RubyOperators.hashInitializer).l
+    hashCall.code shouldBe "{:x => 1}"
+    hashCall.lineNumber shouldBe Some(2)
+
+    val List(assocCall) = hashCall.inCall.astSiblings.assignment.l
+    val List(x, one)    = assocCall.argument.l
+    x.code shouldBe "<tmp-0>[:x]"
+    one.code shouldBe "1"
+  }
+
+  "`{:x => /(eu|us)/}` is represented by a `hashInitializer` operator call" in {
+    val cpg = code("""
+        |{:x => /(eu|us)/}
+        |""".stripMargin)
+
+    val List(hashCall) = cpg.call.name(RubyOperators.hashInitializer).l
+    hashCall.code shouldBe "{:x => /(eu|us)/}"
+    hashCall.lineNumber shouldBe Some(2)
+
+    val List(assocCall) = hashCall.inCall.astSiblings.assignment.l
+    val List(x, regexp) = assocCall.argument.l
+    x.code shouldBe "<tmp-0>[:x]"
+    regexp.code shouldBe "/(eu|us)/"
+  }
+
+  "`{:x : /(eu|us)/}` is represented by a `hashInitializer` operator call" in {
+    val cpg = code("""
+        |{:x : /(eu|us)/}
+        |""".stripMargin)
+
+    val List(hashCall) = cpg.call.name(RubyOperators.hashInitializer).l
+    hashCall.code shouldBe "{:x : /(eu|us)/}"
+    hashCall.lineNumber shouldBe Some(2)
+
+    val List(assocCall) = hashCall.inCall.astSiblings.assignment.l
+    val List(x, regexp) = assocCall.argument.l
+    x.code shouldBe "<tmp-0>[:x]"
+    regexp.code shouldBe "/(eu|us)/"
+  }
+
   "Inclusive Range of primitive ordinal type should expand in hash key" in {
     val cpg = code("""
         |{1..3:"abc", 4..5:"ade"}
@@ -56,7 +102,7 @@ class HashTests extends RubyCode2CpgFixture {
                 lhs.name shouldBe Operators.indexAccess
 
                 rhs.code shouldBe "\"abc\""
-                rhs.typeFullName shouldBe "__builtin.String"
+                rhs.typeFullName shouldBe s"$kernelPrefix.String"
               case _ => fail("Expected LHS and RHS after lowering")
             }
 
@@ -65,7 +111,7 @@ class HashTests extends RubyCode2CpgFixture {
               lhs.name shouldBe Operators.indexAccess
 
               rhs.code shouldBe "\"ade\""
-              rhs.typeFullName shouldBe "__builtin.String"
+              rhs.typeFullName shouldBe s"$kernelPrefix.String"
             }
           case _ => fail("Expected 5 calls (one per item in range)")
         }
@@ -82,7 +128,7 @@ class HashTests extends RubyCode2CpgFixture {
                 lhs.name shouldBe Operators.indexAccess
 
                 rhs.code shouldBe "\"abc\""
-                rhs.typeFullName shouldBe "__builtin.String"
+                rhs.typeFullName shouldBe s"$kernelPrefix.String"
               case _ => fail("Expected LHS and RHS after lowering")
             }
           case _ => fail("Expected 3 calls (one per item in range)")
@@ -130,7 +176,7 @@ class HashTests extends RubyCode2CpgFixture {
                   case _ => fail("Expected range operator for non-primitive range key")
                 }
 
-                rhs.typeFullName shouldBe "__builtin.String"
+                rhs.typeFullName shouldBe s"$kernelPrefix.String"
                 rhs.code shouldBe "\"a\""
               case _ => fail("Expected LHS and RHS for association")
             }
@@ -150,8 +196,8 @@ class HashTests extends RubyCode2CpgFixture {
       case hashCall :: Nil =>
         hashCall.code shouldBe "Hash [1 => \"a\", 2 => \"b\", 3 => \"c\"]"
         hashCall.lineNumber shouldBe Some(2)
-        hashCall.methodFullName shouldBe "__builtin.Hash:[]"
-        hashCall.typeFullName shouldBe "__builtin.Hash"
+        hashCall.methodFullName shouldBe s"$kernelPrefix.Hash:[]"
+        hashCall.typeFullName shouldBe s"$kernelPrefix.Hash"
 
         inside(hashCall.astChildren.l) {
           case _ :: (one: Call) :: (two: Call) :: (three: Call) :: Nil =>

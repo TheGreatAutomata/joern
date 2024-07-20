@@ -6,7 +6,7 @@ import io.joern.gosrc2cpg.datastructures.GoGlobal
 import io.joern.gosrc2cpg.model.GoModHelper
 import io.joern.gosrc2cpg.parser.GoAstJsonParser
 import io.joern.x2cpg.SourceFiles
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.DiffGraphBuilder
 
 import java.nio.file.Paths
@@ -23,7 +23,7 @@ class MethodAndTypeCacheBuilderPass(
 ) {
   def process(): Seq[AstCreator] = {
     val futures = astFiles
-      .map(file => {
+      .map(file =>
         Future {
           val parserResult    = GoAstJsonParser.readFile(Paths.get(file))
           val relPathFileName = SourceFiles.toRelativePath(parserResult.fullPath, config.inputPath)
@@ -31,7 +31,7 @@ class MethodAndTypeCacheBuilderPass(
           val diffGraph       = astCreator.buildCache(cpgOpt)
           (astCreator, diffGraph)
         }
-      })
+      )
     val allResults: Future[List[(AstCreator, DiffGraphBuilder)]] = Future.sequence(futures)
     val results                                                  = Await.result(allResults, Duration.Inf)
     val (astCreators, diffGraphs)                                = results.unzip

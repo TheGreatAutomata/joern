@@ -1,7 +1,7 @@
 package io.joern.rubysrc2cpg.astcreation
 
 import io.joern.rubysrc2cpg.astcreation.RubyIntermediateAst.StatementList
-import io.joern.rubysrc2cpg.datastructures.{RubyField, RubyMethod, RubyProgramSummary, RubyType}
+import io.joern.rubysrc2cpg.datastructures.{RubyField, RubyMethod, RubyProgramSummary, RubyStubbedType, RubyType}
 import io.joern.rubysrc2cpg.parser.RubyNodeCreator
 import io.joern.rubysrc2cpg.passes.Defines
 import io.joern.x2cpg.passes.base.AstLinkerPass
@@ -13,11 +13,12 @@ import overflowdb.{BatchedUpdate, Config}
 
 import java.io.File as JavaFile
 import java.util.regex.Matcher
+import scala.collection.mutable
 import scala.util.Using
 
 trait AstSummaryVisitor(implicit withSchemaValidation: ValidationMode) { this: AstCreator =>
 
-  def summarize(): RubyProgramSummary = {
+  def summarize(asExternal: Boolean = false): RubyProgramSummary = {
     this.parseLevel = AstParseLevel.SIGNATURES
     Using.resource(Cpg.withConfig(Config.withoutOverflow())) { cpg =>
       // Build and store compilation unit AST
@@ -30,7 +31,7 @@ trait AstSummaryVisitor(implicit withSchemaValidation: ValidationMode) { this: A
       AstLinkerPass(cpg).createAndApply()
 
       // Summarize findings
-      summarize(cpg)
+      summarize(cpg, asExternal)
     }
   }
 
@@ -38,7 +39,7 @@ trait AstSummaryVisitor(implicit withSchemaValidation: ValidationMode) { this: A
     AstCreator(fileName, programCtx, projectRoot, newSummary)
   }
 
-  private def summarize(cpg: Cpg): RubyProgramSummary = {
+  private def summarize(cpg: Cpg, asExternal: Boolean): RubyProgramSummary = {
     def toMethod(m: Method): RubyMethod = {
       RubyMethod(
         m.name,
@@ -57,14 +58,15 @@ trait AstSummaryVisitor(implicit withSchemaValidation: ValidationMode) { this: A
     }
 
     def toType(m: TypeDecl): RubyType = {
-      RubyType(m.fullName, m.method.map(toMethod).l, m.member.map(toField).l)
+      if asExternal then RubyStubbedType(m.fullName, m.method.map(toMethod).l, m.member.map(toField).l)
+      else RubyType(m.fullName, m.method.map(toMethod).l, m.member.map(toField).l)
     }
 
     def handleNestedTypes(t: TypeDecl, parentScope: String): Seq[(String, Set[RubyType])] = {
       val typeFullName     = s"$parentScope.${t.name}"
       val childrenTypes    = t.astChildren.collectAll[TypeDecl].l
       val typesOnThisLevel = childrenTypes.flatMap(handleNestedTypes(_, typeFullName))
-      Seq(typeFullName -> childrenTypes.map(toType).toSet) ++ typesOnThisLevel
+      Seq(typeFullName -> childrenTypes.whereNot(_.methodBinding).map(toType).toSet) ++ typesOnThisLevel
     }
 
     val mappings =
@@ -88,14 +90,16 @@ trait AstSummaryVisitor(implicit withSchemaValidation: ValidationMode) { this: A
             val childrenTypes = m.block.astChildren.collectAll[TypeDecl].l
             val fullName      = s"${namespace.fullName}:${m.name}"
             val nestedTypes   = childrenTypes.flatMap(handleNestedTypes(_, fullName))
-            (path, fullName) -> (childrenTypes.map(toType).toSet ++ nestedTypes.flatMap(_._2))
+            (path, fullName) -> (childrenTypes.whereNot(_.methodBinding).map(toType).toSet ++ nestedTypes.flatMap(_._2))
         }.toSeq
 
         moduleEntry +: typeEntries
       }.toList
 
-    val namespaceMappings = mappings.map { case (_, ns) -> entry => ns -> entry }.toMap
-    val pathMappings      = mappings.map { case (path, _) -> entry => path -> entry }.toMap
+    val namespaceMappings: mutable.Map[String, mutable.Set[RubyType]] =
+      mutable.Map.from(mappings.map { case (_, ns) -> entry => ns -> mutable.Set.from(entry) })
+    val pathMappings: mutable.Map[String, mutable.Set[RubyType]] =
+      mutable.Map.from(mappings.map { case (path, _) -> entry => path -> mutable.Set.from(entry) })
 
     RubyProgramSummary(namespaceMappings, pathMappings)
   }

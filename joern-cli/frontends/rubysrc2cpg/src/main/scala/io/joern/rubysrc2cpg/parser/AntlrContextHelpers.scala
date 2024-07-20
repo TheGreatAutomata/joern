@@ -73,6 +73,16 @@ object AntlrContextHelpers {
     def isInterpolated: Boolean = ctx.doubleQuotedString().isInterpolated || concatenations.exists(_.isInterpolated)
   }
 
+  sealed implicit class DoubleQuotedSymbolExpressionContextHelper(ctx: DoubleQuotedSymbolLiteralContext) {
+    def interpolations: List[ParserRuleContext] = ctx.doubleQuotedString().interpolations ++ (ctx
+      .doubleQuotedString() :: Nil)
+      .filter(_.isInterpolated)
+      .flatMap(_.interpolations)
+
+    def concatenations: List[DoubleQuotedStringContext] = ctx.doubleQuotedString() :: Nil
+    def isInterpolated: Boolean = ctx.doubleQuotedString().isInterpolated || concatenations.exists(_.isInterpolated)
+  }
+
   sealed implicit class SingleQuotedStringExpressionContextHelper(ctx: SingleQuotedStringExpressionContext) {
     def concatenations: List[SingleOrDoubleQuotedStringContext] = ctx.singleOrDoubleQuotedString().asScala.toList
     def isInterpolated: Boolean                                 = concatenations.exists(_.isInterpolated)
@@ -82,7 +92,30 @@ object AntlrContextHelpers {
 
   sealed implicit class RegularExpressionLiteralContextHelper(ctx: RegularExpressionLiteralContext) {
     def isStatic: Boolean  = !isDynamic
-    def isDynamic: Boolean = ctx.regexpLiteralContent.asScala.exists(c => Option(c.compoundStatement()).isDefined)
+    def isDynamic: Boolean = interpolations.nonEmpty
+
+    def interpolations: List[ParserRuleContext] = ctx
+      .regexpLiteralContent()
+      .asScala
+      .filter(ctx => Option(ctx.compoundStatement()).isDefined)
+      .map(ctx => ctx.compoundStatement())
+      .toList
+  }
+
+  sealed implicit class QuotedExpandedRegularExpressionLiteralContextHelper(
+    ctx: QuotedExpandedRegularExpressionLiteralContext
+  ) {
+
+    def isStatic: Boolean  = !isDynamic
+    def isDynamic: Boolean = interpolations.nonEmpty
+
+    def interpolations: List[ParserRuleContext] = ctx
+      .quotedExpandedLiteralStringContent()
+      .asScala
+      .filter(ctx => Option(ctx.compoundStatement()).isDefined)
+      .map(ctx => ctx.compoundStatement())
+      .toList
+
   }
 
   sealed implicit class CurlyBracesBlockContextHelper(ctx: CurlyBracesBlockContext) {
@@ -94,12 +127,11 @@ object AntlrContextHelpers {
   }
 
   sealed implicit class CommandArgumentContextHelper(ctx: CommandArgumentContext) {
-    def arguments: List[ParserRuleContext] = ctx match
+    def arguments: List[ParserRuleContext] = ctx match {
       case ctx: CommandCommandArgumentListContext         => ctx.command() :: Nil
       case ctx: CommandArgumentCommandArgumentListContext => ctx.commandArgumentList().elements
-      case ctx =>
-        logger.warn(s"Unsupported argument type ${ctx.getClass}")
-        List()
+      case ctx                                            => Nil
+    }
   }
 
   sealed implicit class CommandArgumentListContextHelper(ctx: CommandArgumentListContext) {
@@ -150,9 +182,11 @@ object AntlrContextHelpers {
       case ctx: CommandIndexingArgumentListContext => List(ctx.command())
       case ctx: OperatorExpressionListIndexingArgumentListContext =>
         ctx.operatorExpressionList().operatorExpression().asScala.toList
-      case ctx: AssociationListIndexingArgumentListContext => ctx.associationList().associations
+      case ctx: AssociationListIndexingArgumentListContext   => ctx.associationList().associations
+      case ctx: SplattingArgumentIndexingArgumentListContext => ctx.splattingArgument() :: Nil
+      case ctx: OperatorExpressionListWithSplattingArgumentIndexingArgumentListContext => ctx.splattingArgument() :: Nil
       case ctx =>
-        logger.warn(s"Unsupported argument type ${ctx.getClass}")
+        logger.warn(s"IndexingArgumentListContextHelper - Unsupported argument type ${ctx.getClass}")
         List()
   }
 
@@ -161,7 +195,7 @@ object AntlrContextHelpers {
       case _: EmptyArgumentWithParenthesesContext          => List()
       case ctx: ArgumentListArgumentWithParenthesesContext => ctx.argumentList().elements
       case ctx =>
-        logger.warn(s"Unsupported argument type ${ctx.getClass}")
+        logger.warn(s"ArgumentWithParenthesesContextHelper - Unsupported argument type ${ctx.getClass}")
         List()
   }
 
@@ -175,8 +209,16 @@ object AntlrContextHelpers {
         operatorExpressions ++ associations ++ splatting ++ block
       case ctx: AssociationsArgumentListContext =>
         Option(ctx.associationList()).map(_.associations).getOrElse(List.empty)
+      case ctx: SplattingArgumentArgumentListContext =>
+        Option(ctx.splattingArgument()).toList
+      case ctx: BlockArgumentArgumentListContext =>
+        Option(ctx.blockArgument()).toList
       case ctx =>
-        logger.warn(s"Unsupported element type ${ctx.getClass.getSimpleName}")
+        logger.warn(s"ArgumentListContextHelper - Unsupported element type ${ctx.getClass.getSimpleName}")
         List()
+  }
+
+  sealed implicit class CommandWithDoBlockContextHelper(ctx: CommandWithDoBlockContext) {
+    def arguments: List[ParserRuleContext] = Option(ctx.argumentList()).map(_.elements).getOrElse(Nil)
   }
 }

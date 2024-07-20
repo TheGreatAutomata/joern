@@ -3,11 +3,26 @@ package io.joern.rubysrc2cpg.astcreation
 import io.joern.rubysrc2cpg.astcreation.RubyIntermediateAst.*
 import io.joern.rubysrc2cpg.datastructures.{ConstructorScope, MethodScope}
 import io.joern.rubysrc2cpg.passes.Defines
-import io.joern.x2cpg.utils.NodeBuilders.{newClosureBindingNode, newLocalNode, newModifierNode, newThisParameterNode}
+import io.joern.x2cpg.utils.NodeBuilders.{
+  newBindingNode,
+  newClosureBindingNode,
+  newLocalNode,
+  newModifierNode,
+  newThisParameterNode
+}
 import io.joern.x2cpg.{Ast, AstEdge, ValidationMode, Defines as XDefines}
 import io.shiftleft.codepropertygraph.generated.nodes.*
-import io.shiftleft.codepropertygraph.generated.{EdgeTypes, EvaluationStrategies, ModifierTypes, NodeTypes}
+import io.shiftleft.codepropertygraph.generated.{
+  DispatchTypes,
+  EdgeTypes,
+  EvaluationStrategies,
+  ModifierTypes,
+  NodeTypes,
+  Operators
+}
 import io.joern.rubysrc2cpg.utils.FreshNameGenerator
+
+import scala.collection.mutable
 
 trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { this: AstCreator =>
 
@@ -24,11 +39,9 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
   protected def astForMethodDeclaration(node: MethodDeclaration, isClosure: Boolean = false): Seq[Ast] = {
 
     // Special case constructor methods
-    val isInTypeDecl = scope.surroundingAstLabel.contains(NodeTypes.TYPE_DECL)
-    val methodName = node.methodName match {
-      case "initialize" if isInTypeDecl => XDefines.ConstructorMethodName
-      case name                         => name
-    }
+    val isInTypeDecl  = scope.surroundingAstLabel.contains(NodeTypes.TYPE_DECL)
+    val isConstructor = node.methodName == "initialize" && isInTypeDecl
+    val methodName    = if isConstructor then XDefines.ConstructorMethodName else node.methodName
     // TODO: body could be a try
     val fullName = computeMethodFullName(methodName)
     val method = methodNode(
@@ -42,15 +55,23 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
       astParentFullName = scope.surroundingScopeFullName
     )
 
-    if (methodName == XDefines.ConstructorMethodName) scope.pushNewScope(ConstructorScope(fullName))
+    if (isConstructor) scope.pushNewScope(ConstructorScope(fullName))
     else scope.pushNewScope(MethodScope(fullName, procParamGen.fresh))
 
-    val parameterAsts = astForParameters(node.parameters)
+    val thisParameterAst = Ast(
+      newThisParameterNode(
+        code = Defines.Self,
+        typeFullName = scope.surroundingTypeFullName.getOrElse(Defines.Any),
+        line = method.lineNumber,
+        column = method.columnNumber
+      )
+    )
+    val parameterAsts = thisParameterAst :: astForParameters(node.parameters)
 
     val optionalStatementList = statementListForOptionalParams(node.parameters)
 
     val methodReturn = methodReturnNode(node, Defines.Any)
-    val refs = if (isClosure) {
+    val refs =
       List(
         typeDeclNode(
           node,
@@ -64,19 +85,20 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
         typeRefNode(node, methodName, fullName),
         methodRefNode(node, methodName, fullName, methodReturn.typeFullName)
       ).map {
-        case x: NewTypeDecl => Ast(x).withChild(Ast(newModifierNode(ModifierTypes.LAMBDA)))
-        case x              => Ast(x)
+        case x: NewTypeDecl if isClosure => Ast(x).withChild(Ast(newModifierNode(ModifierTypes.LAMBDA)))
+        case x                           => Ast(x)
       }
-    } else {
-      Nil
-    }
 
     // Consider which variables are captured from the outer scope
     val stmtBlockAst = if (isClosure) {
       val baseStmtBlockAst = astForMethodBody(node.body, optionalStatementList)
       transformAsClosureBody(refs, baseStmtBlockAst)
     } else {
-      astForMethodBody(node.body, optionalStatementList)
+      if (methodName != XDefines.ConstructorMethodName && node.methodName != XDefines.StaticInitMethodName) {
+        astForMethodBody(node.body, optionalStatementList)
+      } else {
+        astForConstructorMethodBody(node.body, optionalStatementList)
+      }
     }
 
     val anonProcParam = scope.anonProcParam.map { param =>
@@ -88,10 +110,27 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
 
     scope.popScope()
 
-    val modifiers =
-      ModifierTypes.VIRTUAL :: (if isClosure then ModifierTypes.LAMBDA :: Nil else Nil) map newModifierNode
+    val modifiers = mutable.Buffer(ModifierTypes.VIRTUAL)
+    if (isClosure) modifiers.addOne(ModifierTypes.LAMBDA)
+    if (isConstructor) modifiers.addOne(ModifierTypes.CONSTRUCTOR)
 
-    methodAst(method, parameterAsts ++ anonProcParam, stmtBlockAst, methodReturn, modifiers) :: refs
+    createMethodTypeBindings(method, refs)
+
+    val prefixMemberAst =
+      if isClosure || scope.isSurroundedByProgramScope then Ast() // program scope members are set elsewhere
+      else Ast(memberForMethod(method))
+    val prefixRefAssignAst = if isClosure then Ast() else createMethodRefPointer(method)
+    // For closures, we also want the method/type refs for upstream use
+    val suffixAsts = if isClosure then refs else refs.filter(_.root.exists(_.isInstanceOf[NewTypeDecl]))
+    val methodAsts = prefixMemberAst :: prefixRefAssignAst ::
+      methodAst(
+        method,
+        parameterAsts ++ anonProcParam,
+        stmtBlockAst,
+        methodReturn,
+        modifiers.map(newModifierNode).toSeq
+      ) :: suffixAsts
+    methodAsts.filterNot(_.root.isEmpty)
   }
 
   private def transformAsClosureBody(refs: List[Ast], baseStmtBlockAst: Ast) = {
@@ -136,6 +175,16 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
     capturedBlockAst
   }
 
+  /** Creates the bindings between the method and its types. This is useful for resolving function pointers and imports.
+    */
+  private def createMethodTypeBindings(method: NewMethod, refs: List[Ast]): Unit = {
+    refs.flatMap(_.root).collectFirst { case typeRef: NewTypeDecl =>
+      val bindingNode = newBindingNode("", "", method.fullName)
+      diffGraph.addEdge(typeRef, bindingNode, EdgeTypes.BINDS)
+      diffGraph.addEdge(bindingNode, method, EdgeTypes.REF)
+    }
+  }
+
   // TODO: remaining cases
   protected def astForParameter(node: RubyNode, index: Int): Ast = {
     node match {
@@ -166,8 +215,8 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
         Ast(parameterIn)
       case node: CollectionParameter =>
         val typeFullName = node match {
-          case ArrayParameter(_) => prefixAsBuiltin("Array")
-          case HashParameter(_)  => prefixAsBuiltin("Hash")
+          case ArrayParameter(_) => prefixAsKernelDefined("Array")
+          case HashParameter(_)  => prefixAsKernelDefined("Hash")
         }
         val parameterIn = parameterInNode(
           node = node,
@@ -245,7 +294,7 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
     }
 
     // This will link the type decl to the surrounding context via base overlays
-    val typeDeclAst = astForClassDeclaration(node)
+    val typeDeclAst = astForClassDeclaration(node).last
     Ast.storeInDiffGraph(typeDeclAst, diffGraph)
 
     typeDeclAst.nodes
@@ -260,14 +309,14 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
       .getOrElse(Ast())
   }
 
-  protected def astForSingletonMethodDeclaration(node: SingletonMethodDeclaration): Ast = {
+  protected def astForSingletonMethodDeclaration(node: SingletonMethodDeclaration): Seq[Ast] = {
     node.target match
       case targetNode: SingletonMethodIdentifier =>
         val fullName = computeMethodFullName(node.methodName)
 
         val (astParentType, astParentFullName, thisParamCode, addEdge) = targetNode match {
           case _: SelfIdentifier =>
-            (scope.surroundingAstLabel, scope.surroundingScopeFullName, Defines.This, false)
+            (scope.surroundingAstLabel, scope.surroundingScopeFullName, Defines.Self, false)
           case _: SimpleIdentifier =>
             val baseType = node.target.span.text
             scope.surroundingTypeFullName.map(_.split("[.]").last) match {
@@ -277,9 +326,9 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
                 scope.tryResolveTypeReference(baseType) match {
                   case Some(typ) =>
                     (Option(NodeTypes.TYPE_DECL), Option(typ.name), baseType, true)
-                  case None => (None, None, "", false)
+                  case None => (None, None, Defines.Self, false)
                 }
-              case None => (None, None, "", false)
+              case None => (None, None, Defines.Self, false)
             }
         }
 
@@ -304,7 +353,7 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
           )
         )
 
-        val parameterAsts         = astForParameters(node.parameters, true)
+        val parameterAsts         = astForParameters(node.parameters)
         val optionalStatementList = statementListForOptionalParams(node.parameters)
         val stmtBlockAst          = astForMethodBody(node.body, optionalStatementList)
 
@@ -326,21 +375,53 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
           )
         if (addEdge) {
           Ast.storeInDiffGraph(_methodAst, diffGraph)
-          Ast()
+          Nil
         } else {
-          _methodAst
+          createMethodRefPointer(method) :: _methodAst :: Nil
         }
       case targetNode =>
         logger.warn(
           s"Target node type for singleton method declarations are not supported yet: ${targetNode.text} (${targetNode.getClass.getSimpleName}), skipping"
         )
-        astForUnknown(node)
-
+        astForUnknown(node) :: Nil
   }
 
-  private def astForParameters(parameters: List[RubyNode], plusOne: Boolean = false): List[Ast] = {
+  private def createMethodRefPointer(method: NewMethod): Ast = {
+    if (scope.isSurroundedByProgramScope) {
+      val methodRefNode = Ast(
+        NewMethodRef()
+          .code(s"def ${method.name} (...)")
+          .methodFullName(method.fullName)
+          .typeFullName(method.fullName)
+          .lineNumber(method.lineNumber)
+          .columnNumber(method.columnNumber)
+      )
+
+      val methodRefIdent = {
+        val self = NewIdentifier().name(Defines.Self).code(Defines.Self).typeFullName(Defines.Any)
+        val fi = NewFieldIdentifier()
+          .code(method.name)
+          .canonicalName(method.name)
+          .lineNumber(method.lineNumber)
+          .columnNumber(method.columnNumber)
+        val fieldAccess = NewCall()
+          .name(Operators.fieldAccess)
+          .code(s"${Defines.Self}.${method.name}")
+          .methodFullName(Operators.fieldAccess)
+          .dispatchType(DispatchTypes.STATIC_DISPATCH)
+          .typeFullName(Defines.Any)
+        callAst(fieldAccess, Seq(Ast(self), Ast(fi)))
+      }
+
+      astForAssignment(methodRefIdent, methodRefNode, method.lineNumber, method.columnNumber)
+    } else {
+      Ast()
+    }
+  }
+
+  private def astForParameters(parameters: List[RubyNode]): List[Ast] = {
     parameters.zipWithIndex.map { case (parameterNode, index) =>
-      astForParameter(parameterNode, if (plusOne) index + 1 else index)
+      astForParameter(parameterNode, index + 1)
     }
   }
 
@@ -370,6 +451,24 @@ trait AstForFunctionsCreator(implicit withSchemaValidation: ValidationMode) { th
           astForStatementListReturningLastExpression(
             StatementList(optionalStatementList.statements ++ List(body))(body.span)
           )
+        case body =>
+          logger.warn(
+            s"Non-linear method bodies are not supported yet: ${body.text} (${body.getClass.getSimpleName}) ($relativeFileName), skipping"
+          )
+          astForUnknown(body)
+    }
+  }
+
+  private def astForConstructorMethodBody(body: RubyNode, optionalStatementList: StatementList): Ast = {
+    if (this.parseLevel == AstParseLevel.SIGNATURES) {
+      Ast()
+    } else {
+      body match
+        case stmtList: StatementList =>
+          astForStatementList(StatementList(optionalStatementList.statements ++ stmtList.statements)(stmtList.span))
+        case _: (StaticLiteral | BinaryExpression | SingleAssignment | SimpleIdentifier | ArrayLiteral | HashLiteral |
+              SimpleCall | MemberAccess | MemberCall) =>
+          astForStatementList(StatementList(optionalStatementList.statements ++ List(body))(body.span))
         case body =>
           logger.warn(
             s"Non-linear method bodies are not supported yet: ${body.text} (${body.getClass.getSimpleName}) ($relativeFileName), skipping"

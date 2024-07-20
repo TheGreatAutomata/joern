@@ -1,13 +1,14 @@
 package io.joern.pysrc2cpg.dataflow
 
 import io.joern.dataflowengineoss.language.toExtendedCfgNode
-import io.joern.dataflowengineoss.semanticsloader.FlowSemantic
+import io.joern.dataflowengineoss.semanticsloader.{FlowMapping, FlowSemantic, PassThroughMapping}
 import io.joern.pysrc2cpg.PySrc2CpgFixture
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Literal, Member, Method}
 import io.shiftleft.semanticcpg.language.*
 
 import java.io.File
+import scala.collection.immutable.List
 
 class DataFlowTests extends PySrc2CpgFixture(withOssDataflow = true) {
 
@@ -20,6 +21,17 @@ class DataFlowTests extends PySrc2CpgFixture(withOssDataflow = true) {
     val source = cpg.literal("42")
     val sink   = cpg.call.code("print.*").argument
     sink.reachableByFlows(source).size shouldBe 1
+  }
+
+  "intra-procedural 2" in {
+    val cpg = code("""
+        |x = foo(20)
+        |print(x)
+        |""".stripMargin)
+    def source     = cpg.literal("20")
+    def sink       = cpg.call("print").argument
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow shouldBe List(("foo(20)", 2), ("x = foo(20)", 2), ("print(x)", 3))
   }
 
   "chained call" in {
@@ -286,6 +298,62 @@ class DataFlowTests extends PySrc2CpgFixture(withOssDataflow = true) {
     sinks.reachableByFlows(sources).size should not be 0
   }
 
+  "flow from expression that taints global variable to specifically-imported sink" in {
+    val cpg = code("""
+        |from foo import bar
+        |d = {
+        | 'x': 123
+        |}
+        |
+        |class Foo():
+        |   def foo(self):
+        |       return bar(d)
+        |""".stripMargin)
+    val sources    = cpg.literal("123").l
+    val sinks      = cpg.call("bar").l
+    val List(flow) = sinks.reachableByFlows(sources).map(flowToResultPairs).l
+    flow shouldBe List(
+      ("tmp0['x'] = 123", 4),
+      ("tmp0['x'] = 123", 3),
+      ("tmp0", 3),
+      (
+        """d = tmp0 = {}
+      |tmp0['x'] = 123
+      |tmp0""".stripMargin,
+        3
+      ),
+      ("bar(d)", 9)
+    )
+  }
+
+  "flow from expression that taints global variable to imported member sink" in {
+    val cpg = code("""
+        |import bar
+        |d = {
+        | 'x': 123,
+        |}
+        |
+        |class Foo():
+        |   def foo(self):
+        |       return bar.baz(d)
+        |""".stripMargin)
+    val sources    = cpg.literal("123").l
+    val sinks      = cpg.call("baz").l
+    val List(flow) = sinks.reachableByFlows(sources).map(flowToResultPairs).l
+    flow shouldBe List(
+      ("tmp0['x'] = 123", 4),
+      ("tmp0['x'] = 123", 3),
+      ("tmp0", 3),
+      (
+        """d = tmp0 = {}
+          |tmp0['x'] = 123
+          |tmp0""".stripMargin,
+        3
+      ),
+      ("bar.baz(d)", 9)
+    )
+  }
+
   "lookup of __init__ call" in {
     val cpg = code("""
         |from models import Foo
@@ -324,6 +392,266 @@ class DataFlowTests extends PySrc2CpgFixture(withOssDataflow = true) {
     method.fullName shouldBe "models.py:<module>.Foo.__init__"
     val List(typeDeclFullName) = method.typeDecl.fullName.l
     typeDeclFullName shouldBe "models.py:<module>.Foo"
+  }
+
+  "flow from literal used in external call to dictionary value" in {
+    val cpg = code("""
+        |x = foo("X")
+        |bar = {"x": x}
+        |""".stripMargin)
+
+    def sink       = cpg.identifier("x").lineNumber(3)
+    def source     = cpg.literal("\"X\"")
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow shouldBe List(("foo(\"X\")", 2), ("x = foo(\"X\")", 2), ("tmp0[\"x\"] = x", 3))
+  }
+
+  "flow from literal used in external call to dictionary value inside a method" in {
+    val cpg = code("""
+        |x = foo("X")
+        |def run():
+        |  print({"x": x})
+        |""".stripMargin)
+
+    def sink       = cpg.identifier("x").lineNumber(4)
+    def source     = cpg.literal("\"X\"")
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow shouldBe List(("foo(\"X\")", 2), ("x = foo(\"X\")", 2), ("tmp0[\"x\"] = x", 4))
+  }
+
+  "flow from literal used in external call to dictionary value inside a try catch inside of a method" in {
+    val cpg = code("""
+        |x = foo("X")
+        |def run():
+        |  try:
+        |    bar = {"x": x}
+        |    print(bar)
+        |  except Exception as e:
+        |    print(e)
+        |""".stripMargin)
+
+    def sink       = cpg.identifier("x").lineNumber(5)
+    def source     = cpg.literal("\"X\"")
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow shouldBe List(("foo(\"X\")", 2), ("x = foo(\"X\")", 2), ("tmp0[\"x\"] = x", 5))
+  }
+
+  "flow from literal used in imported member call to dictionary value used as keyword argument to another imported member" in {
+    val cpg = code("""
+        |import a
+        |import b
+        |x = a.run("X")
+        |def run():
+        |  y = b.run(Params={"x": x})
+        |  print(y)
+        |""".stripMargin)
+
+    def sink       = cpg.identifier("x").lineNumber(6)
+    def source     = cpg.literal("\"X\"")
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow shouldBe List(("a.run(\"X\")", 4), ("x = a.run(\"X\")", 4), ("tmp0[\"x\"] = x", 6))
+  }
+
+  "flow from literals in dictionary literal assignment and first argument to second argument" in {
+    val cpg = code("""
+        |x = {'x': 10}
+        |print(1, x)
+        |""".stripMargin)
+
+    def source              = cpg.literal
+    def sink                = cpg.call("print").argument(2)
+    val List(flow1, flow10) = sink.reachableByFlows(source).map(flowToResultPairs).sortBy(_.length).l
+    flow1 shouldBe List(("print(1, x)", 3))
+    flow10 shouldBe List(
+      ("tmp0['x'] = 10", 2),
+      ("tmp0", 2),
+      ("x = tmp0 = {}\ntmp0['x'] = 10\ntmp0", 2),
+      ("print(1, x)", 3)
+    )
+  }
+
+  "flow from literal in dictionary literal assignment to second argument, using custom flows" in {
+    val cpg = code("""
+        |x = {'x': 10}
+        |print(1, x)
+        |""".stripMargin)
+      .withExtraFlows(List(FlowSemantic(".*print", List(PassThroughMapping), true)))
+
+    def source       = cpg.literal
+    def sink         = cpg.call("print").argument.argumentIndex(2)
+    val List(flow10) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow10 shouldBe List(
+      ("tmp0['x'] = 10", 2),
+      ("tmp0", 2),
+      ("x = tmp0 = {}\ntmp0['x'] = 10\ntmp0", 2),
+      ("print(1, x)", 3)
+    )
+  }
+
+  "flow from literals in dictionary literal and first argument to second argument" in {
+    val cpg = code("""
+        |print(1, {'x': 10})
+        |""".stripMargin)
+
+    def source       = cpg.literal
+    def sink         = cpg.call("print").argument.argumentIndex(2)
+    val List(flow10) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow10 shouldBe List(("tmp0['x'] = 10", 2), ("tmp0", 2))
+  }
+
+  "flow from literals into a dictionary literal used as an argument to an external call" in {
+    val cpg = code("""
+        |import bar
+        |x = 100
+        |bar.foo('D').baz(A='A', B=b, C={'Property': x})
+        |""".stripMargin)
+
+    def source        = cpg.literal
+    def sink          = cpg.call("baz").argument.argumentName("C")
+    val List(flow100) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow100 shouldBe List(("x = 100", 3), ("tmp0['Property'] = x", 4), ("tmp0", 4))
+  }
+
+  "flow from literal in an imported dictionary literal to `print`" in {
+    val cpg = code(
+      """
+        |from p1.bar import baz
+        |print(baz)
+        |""".stripMargin,
+      "foo.py"
+    ).moreCode(
+      """
+        |baz = {"Property1": "foo"}
+        |""".stripMargin,
+      "p1/bar.py"
+    )
+    val source     = cpg.literal("\"foo\"")
+    val sink       = cpg.call("print").argument(1)
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+
+    flow shouldBe List(("tmp0[\"Property1\"] = \"foo\"", 2), ("baz = import(p1.bar, baz)", 2), ("print(baz)", 3))
+  }
+
+  "flow from literal in an imported method-returned dictionary to `print`" in {
+    val cpg = code(
+      """
+        |import bar
+        |print(bar.baz())
+        |""".stripMargin,
+      "main.py"
+    ).moreCode(
+      """
+        |def baz():
+        |  return {"Property": "foo"}
+        |""".stripMargin,
+      "bar.py"
+    )
+    val source     = cpg.literal("\"foo\"")
+    val sink       = cpg.call("print").argument(1)
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+
+    flow shouldBe List(
+      ("tmp0[\"Property\"] = \"foo\"", 3),
+      ("tmp0", 3),
+      ("return {\"Property\": \"foo\"}", 3),
+      ("RET", 2),
+      ("bar.baz()", 3)
+    )
+  }
+
+  "flow from global variable defined in imported file and used as argument to `print`" in {
+    val cpg = code("""
+        |from models import FOOBAR
+        |print(FOOBAR)
+        |""".stripMargin)
+      .moreCode(
+        """
+          |FOOBAR = "XYZ"
+          |""".stripMargin,
+        fileName = "models.py"
+      )
+    def sink       = cpg.call("print").argument.argumentIndex(1)
+    def source     = cpg.literal("\"XYZ\"")
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow shouldBe List(("FOOBAR = \"XYZ\"", 2), ("FOOBAR = import(models, FOOBAR)", 2), ("print(FOOBAR)", 3))
+  }
+
+  "flow from global variable defined in imported file and used inside a method as argument to `print`" in {
+    val cpg = code("""
+        |from models import FOOBAR
+        |def run():
+        |   print(FOOBAR)
+        |""".stripMargin)
+      .moreCode(
+        """
+          |FOOBAR = "XYZ"
+          |""".stripMargin,
+        fileName = "models.py"
+      )
+
+    def sink       = cpg.call("print").argument.argumentIndex(1)
+    def source     = cpg.literal("\"XYZ\"")
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow shouldBe List(("FOOBAR = \"XYZ\"", 2), ("FOOBAR = import(models, FOOBAR)", 2), ("print(FOOBAR)", 4))
+  }
+
+  "flow from global variable defined in imported file and used as argument to another module's imported method" in {
+    val cpg = code("""
+        |import service
+        |from models import FOOBAR
+        |def run():
+        |   service.doThing(FOOBAR)
+        |""".stripMargin)
+      .moreCode(
+        """
+          |FOOBAR = "XYZ"
+          |""".stripMargin,
+        fileName = "models.py"
+      )
+
+    def sink       = cpg.call("doThing").argument.argumentIndex(1)
+    def source     = cpg.literal("\"XYZ\"")
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow shouldBe List(("FOOBAR = \"XYZ\"", 2), ("FOOBAR = import(models, FOOBAR)", 3), ("service.doThing(FOOBAR)", 5))
+  }
+
+  "flow from global variable defined in imported file and used as field access to `print`" in {
+    val cpg = code("""
+        |import models
+        |print(models.FOOBAR)
+        |""".stripMargin)
+      .moreCode(
+        """
+          |FOOBAR = "XYZ"
+          |""".stripMargin,
+        fileName = "models.py"
+      )
+
+    def sink       = cpg.call("print").argument.argumentIndex(1)
+    def source     = cpg.literal("\"XYZ\"")
+    val List(flow) = sink.reachableByFlows(source).map(flowToResultPairs).l
+    flow shouldBe List(("FOOBAR = \"XYZ\"", 2), ("models = import(, models)", 2), ("print(models.FOOBAR)", 3))
+  }
+
+  "flows through nested try-except structures" in {
+    val cpg = code("""
+        |def a9_lab(request):
+        | try:
+        |   file = request.FILES["file"]
+        |   try:
+        |     data = yaml.load(file, yaml.Loader)
+        |   except:
+        |     print("Failed to deserialize yaml")
+        | except:
+        |   print("Failed to extract file parameter from request")
+        |""".stripMargin)
+
+    // TODO: For some reason, cpg.parameter.nameExact("request").l does not work as a source
+    val source = cpg.assignment.and(_.target.isIdentifier.nameExact("file"), _.source.code("request.*")).source.l
+    val sink   = cpg.call.nameExact("load").argument(1).l
+    sink.reachableByFlows(source).map(flowToResultPairs).l shouldBe List(
+      List(("file = request.FILES[\"file\"]", 4), ("yaml.load(file, yaml.Loader)", 6))
+    )
   }
 
 }

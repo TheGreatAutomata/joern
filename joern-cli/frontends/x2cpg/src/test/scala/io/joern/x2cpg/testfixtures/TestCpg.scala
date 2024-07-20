@@ -2,7 +2,7 @@ package io.joern.x2cpg.testfixtures
 
 import io.joern.x2cpg.X2CpgConfig
 import io.joern.x2cpg.utils.TestCodeWriter
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import overflowdb.Graph
 
 import java.nio.file.{Files, Path}
@@ -24,7 +24,7 @@ abstract class TestCpg extends Cpg() with LanguageFrontend with TestCodeWriter {
     super.moreCode(code, fileName)
   }
 
-  def withConfig(config: X2CpgConfig[_]): this.type = {
+  def withConfig(config: X2CpgConfig[?]): this.type = {
     setConfig(config)
     this
   }

@@ -129,7 +129,7 @@ object JoernScan extends BridgeBase {
 
   private def dumpQueriesAsJson(outFileName: String): Unit = {
     implicit val engineContext: EngineContext = EngineContext(Semantics.empty)
-    implicit val formats: AnyRef with Formats = Serialization.formats(NoTypeHints)
+    implicit val formats: AnyRef & Formats    = Serialization.formats(NoTypeHints)
     val queryDb                               = new QueryDatabase(new JoernDefaultArgumentProvider(0))
     better.files
       .File(outFileName)
@@ -263,7 +263,7 @@ class Scan(options: ScanOptions)(implicit engineContext: EngineContext) extends 
   override val overlayName: String = Scan.overlayName
   override val description: String = Scan.description
 
-  override def create(context: LayerCreatorContext, storeUndoInfo: Boolean): Unit = {
+  override def create(context: LayerCreatorContext): Unit = {
     val allQueries = getQueriesFromQueryDb(new JoernDefaultArgumentProvider(options.maxCallDepth))
     if (allQueries.isEmpty) {
       println("No queries found, you probably forgot to install a query database.")
@@ -274,7 +274,7 @@ class Scan(options: ScanOptions)(implicit engineContext: EngineContext) extends 
       println("No queries matched current filter selection (total number of queries: `" + allQueries.length + "`)")
       return
     }
-    runPass(new ScanPass(context.cpg, queriesAfterFilter), context, storeUndoInfo)
+    runPass(new ScanPass(context.cpg, queriesAfterFilter), context)
     outputFindings(context.cpg)
 
   }

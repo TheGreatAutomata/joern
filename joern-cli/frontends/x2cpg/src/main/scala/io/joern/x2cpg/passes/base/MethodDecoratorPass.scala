@@ -1,6 +1,6 @@
 package io.joern.x2cpg.passes.base
 
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.{EdgeTypes, nodes}
 import io.shiftleft.passes.CpgPass
 import io.shiftleft.semanticcpg.language._
@@ -14,8 +14,8 @@ import org.slf4j.{Logger, LoggerFactory}
 class MethodDecoratorPass(cpg: Cpg) extends CpgPass(cpg) {
   import MethodDecoratorPass.logger
 
-  private[this] var loggedDeprecatedWarning   = false
-  private[this] var loggedMissingTypeFullName = false
+  private var loggedDeprecatedWarning   = false
+  private var loggedMissingTypeFullName = false
 
   override def run(dstGraph: DiffGraphBuilder): Unit = {
     cpg.parameter.foreach { parameterIn =>

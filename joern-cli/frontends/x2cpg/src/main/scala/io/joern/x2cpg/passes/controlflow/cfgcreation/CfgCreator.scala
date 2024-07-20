@@ -498,7 +498,8 @@ class CfgCreator(entryNode: Method, diffGraph: DiffGraphBuilder) {
 
     val tryBodyCfg: Cfg = maybeTryBlock.map(cfgFor).getOrElse(Cfg.empty)
 
-    val catchControlStructures = node.astChildren.isControlStructure.isCatch.toList
+    val catchControlStructures =
+      (node.astChildren.isControlStructure.isCatch ++ node.astChildren.isControlStructure.isElse).toList
     val catchBodyCfgs = if (catchControlStructures.isEmpty) {
       node.astChildren.order(2).toList match {
         case Nil  => List(Cfg.empty)
@@ -549,7 +550,7 @@ class CfgCreator(entryNode: Method, diffGraph: DiffGraphBuilder) {
       maybeFinallyBodyCfg.headOption.getOrElse(Cfg.empty)
     } else {
       Cfg
-        .from(Seq(tryBodyCfg) ++ catchBodyCfgs ++ maybeFinallyBodyCfg: _*)
+        .from(Seq(tryBodyCfg) ++ catchBodyCfgs ++ maybeFinallyBodyCfg*)
         .copy(
           entryNode = tryBodyCfg.entryNode,
           edges =
@@ -600,7 +601,7 @@ class CfgCreator(entryNode: Method, diffGraph: DiffGraphBuilder) {
     val breakFringe    = takeCurrentLevel(bodyCfgs.flatMap(_.breaks)).map((_, AlwaysEdge))
 
     Cfg
-      .from(conditionCfg :: bodyCfgs: _*)
+      .from(conditionCfg :: bodyCfgs*)
       .copy(
         entryNode = conditionCfg.entryNode,
         edges = caseEdges ++ conditionCfg.edges ++ bodyCfgs.flatMap(_.edges),

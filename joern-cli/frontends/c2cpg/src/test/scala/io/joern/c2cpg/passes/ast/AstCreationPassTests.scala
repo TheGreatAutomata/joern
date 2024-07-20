@@ -1,7 +1,7 @@
 package io.joern.c2cpg.passes.ast
 
 import io.joern.c2cpg.testfixtures.AstC2CpgSuite
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.ControlStructureTypes
 import io.shiftleft.codepropertygraph.generated.DispatchTypes
 import io.shiftleft.codepropertygraph.generated.EdgeTypes
@@ -1220,9 +1220,10 @@ class AstCreationPassTests extends AstC2CpgSuite {
       )
       inside(cpg.controlStructure.isTry.l) { case List(t) =>
         val List(tryBlock) = t.astChildren.isBlock.l
+        tryBlock.order shouldBe 1
         tryBlock.astChildren.isCall.order(1).code.l shouldBe List("bar()")
         val List(catchX) = t.astChildren.isControlStructure.isCatch.l
-        catchX.order shouldBe 1
+        catchX.order shouldBe 2
         catchX.ast.isReturn.code.l shouldBe List("return 0;")
         catchX.ast.isLocal.code.l shouldBe List("Foo x")
       }
@@ -1247,17 +1248,43 @@ class AstCreationPassTests extends AstC2CpgSuite {
       )
       inside(cpg.controlStructure.isTry.l) { case List(t) =>
         val List(tryBlock) = t.astChildren.isBlock.l
+        tryBlock.order shouldBe 1
         tryBlock.astChildren.isIdentifier.order(1).code.l shouldBe List("a")
         val List(catchX, catchY, catchZ) = t.astChildren.isControlStructure.isCatch.l
-        catchX.order shouldBe 1
+        catchX.order shouldBe 2
         catchX.ast.isIdentifier.code.l shouldBe List("b")
         catchX.ast.isLocal.code.l shouldBe List("short x")
-        catchY.order shouldBe 2
+        catchY.order shouldBe 3
         catchY.ast.isIdentifier.code.l shouldBe List("c")
         catchY.ast.isLocal.code.l shouldBe List("int y")
-        catchZ.order shouldBe 3
+        catchZ.order shouldBe 4
         catchZ.ast.isIdentifier.code.l shouldBe List("d")
         catchZ.ast.isLocal.code.l shouldBe List("long z")
+      }
+    }
+
+    "be correct for try with multiple catches and broken catch clause" in {
+      val cpg: Cpg = code(
+        """
+          |int main() {
+          |  try {}
+          |  catch (int a) {}
+          |  catch (...) {}
+          |}
+          |""".stripMargin,
+        "file.cpp"
+      )
+      inside(cpg.controlStructure.isTry.l) { case List(t) =>
+        val List(tryBlock) = t.astChildren.isBlock.l
+        tryBlock.order shouldBe 1
+        tryBlock.astChildren shouldBe empty
+        val List(catchA, catchB) = t.astChildren.isControlStructure.isCatch.l
+        catchA.order shouldBe 2
+        catchA.ast.isBlock.astChildren shouldBe empty
+        catchA.ast.isLocal.name.l shouldBe List("a")
+        catchB.order shouldBe 3
+        catchB.ast.isBlock.astChildren shouldBe empty
+        catchB.ast.isLocal shouldBe empty
       }
     }
 

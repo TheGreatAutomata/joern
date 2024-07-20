@@ -1,7 +1,7 @@
 package io.joern.x2cpg.passes.callgraph
 
 import io.joern.x2cpg.Defines.DynamicCallUnknownFullName
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Call, Method, TypeDecl}
 import io.shiftleft.codepropertygraph.generated.{DispatchTypes, EdgeTypes, PropertyNames}
 import io.shiftleft.passes.CpgPass
@@ -146,10 +146,10 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
     val typeDeclFullName           = fullName.replace(s".${call.name}", "")
     val candidateInheritedMethods =
       cpg.typeDecl
-        .fullNameExact(allSuperClasses(typeDeclFullName).toIndexedSeq: _*)
+        .fullNameExact(allSuperClasses(typeDeclFullName).toIndexedSeq*)
         .astChildren
         .isMethod
-        .name(call.name)
+        .nameExact(call.name)
         .and(_.signatureExact(signature))
         .fullName
         .l
@@ -209,7 +209,7 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
     }
   }
 
-  private def nodesWithFullName(x: String): Iterable[NodeRef[_ <: NodeDb]] =
+  private def nodesWithFullName(x: String): Iterable[NodeRef[? <: NodeDb]] =
     cpg.graph.indexManager.lookup(PropertyNames.FULL_NAME, x).asScala
 
   private def methodFullNameToNode(x: String): Option[Method] =

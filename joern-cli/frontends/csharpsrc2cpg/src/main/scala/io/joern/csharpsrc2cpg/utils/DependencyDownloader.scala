@@ -42,7 +42,7 @@ class DependencyDownloader(
     File.temporaryDirectory("joern-csharpsrc2cpg").apply { dir =>
       cpg.dependency.filterNot(isAlreadySummarized).foreach(downloadDependency(dir, _))
       unzipDependencies(dir)
-      summarizeDependencies(dir) ++ internalProgramSummary
+      summarizeDependencies(dir) ++= internalProgramSummary
     }
   }
 
@@ -74,6 +74,7 @@ class DependencyDownloader(
     */
   private def downloadDependency(targetDir: File, dependency: Dependency): Unit = {
 
+    val dependencyName = dependency.name.strip()
     def getVersion(packageName: String): Option[String] = Try {
       Using.resource(URI(s"https://$NUGET_BASE_API_V3/${packageName.toLowerCase}/index.json").toURL.openStream()) {
         is =>
@@ -88,18 +89,19 @@ class DependencyDownloader(
     }
 
     def createUrl(packageType: String, version: String): URL = {
-      URI(s"https://$NUGET_BASE_API_V2/$packageType/${dependency.name}/$version").toURL
+      URI(s"https://$NUGET_BASE_API_V2/$packageType/${dependencyName}/$version").toURL
     }
 
     // If dependency version is not specified, latest is returned
-    val versionOpt = if dependency.version.isBlank then getVersion(dependency.name) else Option(dependency.version)
+    val versionOpt =
+      if dependency.version.isBlank then getVersion(dependencyName) else Option(dependency.version)
 
     versionOpt match {
       case Some(version) =>
         downloadPackage(targetDir, dependency, createUrl("package", version))
         downloadPackage(targetDir, dependency, createUrl("symbolpackage", version))
       case None =>
-        logger.error(s"Unable to determine package version for ${dependency.name}, skipping")
+        logger.error(s"Unable to determine package version for ${dependencyName}, skipping")
     }
   }
 
@@ -199,18 +201,21 @@ class DependencyDownloader(
   private def summarizeDependencies(targetDir: File): CSharpProgramSummary = {
     val astGenRunner       = new DotNetAstGenRunner(config.withInputPath(targetDir.pathAsString))
     val astGenRunnerResult = astGenRunner.execute(targetDir)
-    val mappings = astGenRunnerResult.parsedFiles.map(x => File(x)).flatMap { f =>
-      Using.resource(f.newFileInputStream) { fis =>
-        CSharpProgramSummary.jsonToInitialMapping(fis) match {
-          case Failure(exception) =>
-            logger.error(s"Unable to parse JSON program summary at $f", exception)
-            None
-          case Success(parsedJson) =>
-            Option(parsedJson)
+    val summaries = astGenRunnerResult.parsedFiles
+      .map(x => File(x))
+      .flatMap { f =>
+        Using.resource(f.newFileInputStream) { fis =>
+          CSharpProgramSummary.jsonToInitialMapping(fis) match {
+            case Failure(exception) =>
+              logger.error(s"Unable to parse JSON program summary at $f", exception)
+              None
+            case Success(parsedJson) =>
+              Option(parsedJson)
+          }
         }
       }
-    }
-    CSharpProgramSummary(mappings)
+      .map(CSharpProgramSummary(_))
+    CSharpProgramSummary(summaries)
   }
 
 }

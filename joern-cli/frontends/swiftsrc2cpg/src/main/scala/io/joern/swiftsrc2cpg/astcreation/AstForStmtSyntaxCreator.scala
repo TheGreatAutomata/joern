@@ -54,15 +54,18 @@ trait AstForStmtSyntaxCreator(implicit withSchemaValidation: ValidationMode) {
   private def astForDiscardStmtSyntax(node: DiscardStmtSyntax): Ast = notHandledYet(node)
 
   private def astForDoStmtSyntax(node: DoStmtSyntax): Ast = {
-    val tryNode  = controlStructureNode(node, ControlStructureTypes.TRY, code(node))
-    val bodyAst  = astForNode(node.body)
-    val catchAst = astForNode(node.catchClauses)
-    // The semantics of try statement children is defined by their order value.
-    // Thus we set the here explicitly and do not rely on the usual consecutive
-    // ordering.
-    setOrderExplicitly(bodyAst, 1)
-    setOrderExplicitly(catchAst, 2)
-    Ast(tryNode).withChildren(List(bodyAst, catchAst))
+    val tryNode   = controlStructureNode(node, ControlStructureTypes.TRY, code(node))
+    val bodyAst   = astForNode(node.body)
+    val catchAsts = node.catchClauses.children.map(astForCatchHandler)
+    tryCatchAst(tryNode, bodyAst, catchAsts, None)
+  }
+
+  private def astForCatchHandler(catchClause: CatchClauseSyntax): Ast = {
+    val catchNode = controlStructureNode(catchClause, ControlStructureTypes.CATCH, code(catchClause))
+    val declAst   = astForNode(catchClause.catchItems)
+    val bodyAst   = astForNode(catchClause.body)
+    setArgumentIndices(List(declAst, bodyAst))
+    Ast(catchNode).withChild(declAst).withChild(bodyAst)
   }
 
   private def astForExpressionStmtSyntax(node: ExpressionStmtSyntax): Ast = {

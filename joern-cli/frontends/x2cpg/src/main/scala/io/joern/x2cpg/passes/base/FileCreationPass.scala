@@ -1,7 +1,7 @@
 package io.joern.x2cpg.passes.base
 
 import io.joern.x2cpg.utils.LinkingUtil
-import io.shiftleft.codepropertygraph.Cpg
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{NewFile, StoredNode}
 import io.shiftleft.codepropertygraph.generated.{EdgeTypes, NodeTypes, PropertyNames}
 import io.shiftleft.passes.CpgPass
@@ -42,7 +42,7 @@ class FileCreationPass(cpg: Cpg) extends CpgPass(cpg) with LinkingUtil {
     // Create SOURCE_FILE edges from nodes of various types to FILE
     linkToSingle(
       cpg,
-      srcNodes = cpg.graph.nodes(srcLabels: _*).toList,
+      srcNodes = cpg.graph.nodes(srcLabels*).toList,
       srcLabels = srcLabels,
       dstNodeLabel = NodeTypes.FILE,
       edgeType = EdgeTypes.SOURCE_FILE,

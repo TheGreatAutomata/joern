@@ -282,9 +282,9 @@ primaryValue
         # assignmentWithRescue
         
         // Definitions
-    |   CLASS classPath (LT commandOrPrimaryValue)? (SEMI | NL) bodyStatement END
+    |   CLASS classPath (LT commandOrPrimaryValueClass)? (SEMI | NL) bodyStatement END
         # classDefinition
-    |   CLASS LT2 commandOrPrimaryValue (SEMI | NL) bodyStatement END
+    |   CLASS LT2 commandOrPrimaryValueClass (SEMI | NL) bodyStatement END
         # singletonClassDefinition
     |   MODULE classPath bodyStatement END
         # moduleDefinition
@@ -298,21 +298,21 @@ primaryValue
         # lambdaExpression
 
         // Control structures
-    |   IF NL* commandOrPrimaryValue thenClause elsifClause* elseClause? END
+    |   IF NL* expressionOrCommand thenClause elsifClause* elseClause? END
         # ifExpression
-    |   UNLESS NL* commandOrPrimaryValue thenClause elseClause? END
+    |   UNLESS NL* expressionOrCommand thenClause elseClause? END
         # unlessExpression
-    |   UNTIL NL* commandOrPrimaryValue doClause END
+    |   UNTIL NL* expressionOrCommand doClause END
         # untilExpression
     |   YIELD argumentWithParentheses?
         # yieldExpression
     |   BEGIN bodyStatement END
         # beginEndExpression
-    |   CASE NL* commandOrPrimaryValue (SEMI | NL)* whenClause+ elseClause? END
+    |   CASE NL* expressionOrCommand (SEMI | NL)* whenClause+ elseClause? END
         # caseWithExpression
     |   CASE (SEMI | NL)* whenClause+ elseClause? END
         # caseWithoutExpression
-    |   WHILE NL* commandOrPrimaryValue doClause END
+    |   WHILE NL* expressionOrCommand doClause END
         # whileExpression
     |   FOR NL* forVariable IN NL* commandOrPrimaryValue doClause END
         # forExpression
@@ -407,15 +407,27 @@ primaryValue
         # hereDocs
     ;
 
-commandOrPrimaryValue
+// This is required to make chained calls work. For classes, we cannot move up the `primaryValue` due to the possible
+// presence of AMPDOT when inheriting (class Foo < Bar::Baz), but the command rule doesn't allow chained calls
+// in if statements to be created properly, and ends throwing away everything after the first call. Splitting these
+// allows us to have a rule for the class that parses properly, and a rule for everything else that allows us to move
+// up the `primaryValue` rule to the top.
+commandOrPrimaryValueClass
     :   command
+        # commandCommandOrPrimaryValueClass
+    |   primaryValue
+        # primaryValueCommandOrPrimaryValueClass
+    ;
+
+commandOrPrimaryValue
+    :   primaryValue
+        # primaryValueCommandOrPrimaryValue
+    |   command
         # commandCommandOrPrimaryValue
     |   NOT commandOrPrimaryValue
         # notCommandOrPrimaryValue
     |   commandOrPrimaryValue (AND|OR) NL* commandOrPrimaryValue
         # keywordAndOrCommandOrPrimaryValue
-    |   primaryValue
-        # primaryValueCommandOrPrimaryValue
     ;
 
 block
@@ -494,6 +506,7 @@ definedMethodName
     |   EQ2
     |   EQ3
     |   LTEQGT
+    |   LT2
     ;
 
 methodParameterPart
