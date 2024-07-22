@@ -19,7 +19,7 @@ object Versions {
   val gradleTooling          = "8.3"
   val jacksonDatabind        = "2.17.0"
   val javaParser             = "3.25.9"
-  val json4s                 = "4.0.7"
+  val json4s                 = "4.0.3"
   val lombok                 = "1.18.32"
   val mavenArcheologist      = "0.0.10"
   val pPrint                 = "0.8.1"

@@ -318,12 +318,9 @@ trait AstForStatementsCreator(implicit withSchemaValidation: ValidationMode) { t
   private def astForReturnMemberCall(node: MemberCall): Ast = {
     returnAst(returnNode(node, code(node)), List(astForMemberCall(node)))
   }
-
-<<<<<<< HEAD
-  private def astForBreakStatement(node: BreakStatement): Ast = {
-=======
+  
   protected def astForBreakStatement(node: BreakStatement): Ast = {
->>>>>>> f47c96a
+
     val _node = NewControlStructure()
       .controlStructureType(ControlStructureTypes.BREAK)
       .lineNumber(line(node))

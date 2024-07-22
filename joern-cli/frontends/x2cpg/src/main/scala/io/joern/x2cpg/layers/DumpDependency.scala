@@ -29,7 +29,7 @@ class DumpDependency(options: DependencyDumpOptions) extends LayerCreator {
     }
   }
 
-  override def create(context: LayerCreatorContext, storeUndoInfo: Boolean): Unit = {
+  override def create(context: LayerCreatorContext): Unit = {
     val cpg = context.cpg
     cpg.method.isExternal(false).zipWithIndex.foreach { case (method, i) =>
       if(method.block.astChildren.nonEmpty)

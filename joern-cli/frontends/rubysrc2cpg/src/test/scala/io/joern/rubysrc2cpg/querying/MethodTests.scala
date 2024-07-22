@@ -453,11 +453,7 @@ class MethodTests extends RubyCode2CpgFixture {
   "break unless statement" should {
     val cpg = code("""
         |  def foo
-<<<<<<< HEAD
-        |    loop do
-=======
         |    bar do
->>>>>>> f47c96a
         |      break unless 1 < 2
         |    end
         |  end
@@ -539,8 +535,6 @@ class MethodTests extends RubyCode2CpgFixture {
       }
     }
   }
-<<<<<<< HEAD
-=======
 
   "Chained method calls" should {
     val cpg = code("""
@@ -680,5 +674,5 @@ class MethodTests extends RubyCode2CpgFixture {
       }
     }
   }
->>>>>>> f47c96a
+
 }
