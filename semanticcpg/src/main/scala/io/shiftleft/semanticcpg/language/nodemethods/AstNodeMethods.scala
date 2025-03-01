@@ -26,6 +26,8 @@ class AstNodeMethods(val node: AstNode) extends AnyVal with NodeExtension {
   def isLiteral: Boolean = node.isInstanceOf[Literal]
 
   def isLocal: Boolean = node.isInstanceOf[Local]
+  
+  def isGlobal: Boolean = node.isLocal && node.asInstanceOf[Local].isGlobal
 
   def isCall: Boolean = node.isInstanceOf[Call]
 
@@ -46,6 +48,10 @@ class AstNodeMethods(val node: AstNode) extends AnyVal with NodeExtension {
   def isParameter: Boolean = node.isInstanceOf[MethodParameterIn]
 
   def isTypeDecl: Boolean = node.isInstanceOf[TypeDecl]
+  
+  def hasMacroExpansion: Boolean = node._inMacroOut.nonEmpty
+  
+  def macroDecl: Iterator[MacroDecl] = node._inMacroOut.collectAll[MacroDecl]
 
   def depth: Int = depth(_ => true)
 

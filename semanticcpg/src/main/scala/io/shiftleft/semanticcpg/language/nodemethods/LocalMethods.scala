@@ -9,6 +9,10 @@ class LocalMethods(val local: Local) extends AnyVal with NodeExtension with HasL
     LocationCreator(local, local.name, local.label, local.lineNumber, local.method.head)
   }
 
+  def isGlobal: Boolean = {
+    local.astParent.isNamespaceBlock
+  }
+
   /** The method hosting this local variable
     */
   def method: Iterator[Method] =

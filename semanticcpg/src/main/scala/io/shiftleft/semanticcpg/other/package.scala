@@ -10,7 +10,7 @@ package object UsefullNodeEdgeSet {
     NodeTypes.NAMESPACE_BLOCK
   )
 
-  val SearchEdgeForRemovePointerArrayReference:Array[String]=Array(
+  val  SearchEdgeForRemovePointerArrayReference:Array[String]=Array(
     EdgeTypes.POINTER_OF,
     EdgeTypes.ARRAY_OF,
     EdgeTypes.L_REFERENCE_OF,

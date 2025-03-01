@@ -13,6 +13,8 @@ class MethodMethods(val method: Method) extends AnyVal with NodeExtension with H
 
   def local: Iterator[Local] =
     method._blockViaContainsOut.local
+    
+  def isBuildIn: Boolean = method.name.startsWith("<") || method.filename==null || method.filename.isEmpty || method.filename.startsWith("<")
 
   /** All control structures of this method
     */

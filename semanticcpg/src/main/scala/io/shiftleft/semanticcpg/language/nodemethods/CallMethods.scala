@@ -25,6 +25,8 @@ class CallMethods(val node: Call) extends AnyVal with NodeExtension with HasLoca
     node._argumentOut.collectFirst {
       case expr: Expression if expr.argumentIndex == index => expr
     }
+    
+  def isBuildIn: Boolean = node.methodFullName.startsWith("<")
 
   def macroExpansion: Iterator[Expression] = {
     if (node.dispatchType != DispatchTypes.INLINED) return Iterator.empty

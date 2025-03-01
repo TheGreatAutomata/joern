@@ -47,6 +47,9 @@ package object language
   implicit def toCallMethods(node: Call): CallMethods                         = new CallMethods(node)
   implicit def toMethodParamInMethods(node: MethodParameterIn): MethodParameterInMethods =
     new MethodParameterInMethods(node)
+  implicit def toTypeDeclMethods(node: TypeDecl): TypeDeclMethods = new TypeDeclMethods(node)
+  implicit def toMacroDeclMethods(node: MacroDecl): MacroDeclMethods = new MacroDeclMethods(node)
+  implicit def toTypeMethods(node: Type): TypeMethods = new TypeMethods(node)
   implicit def toMethodParamOutMethods(node: MethodParameterOut): MethodParameterOutMethods =
     new MethodParameterOutMethods(node)
   implicit def toIdentifierMethods(node: Identifier): IdentifierMethods = new IdentifierMethods(node)

@@ -3,6 +3,7 @@ package io.shiftleft.semanticcpg.language.types.structure
 import io.shiftleft.codepropertygraph.generated.nodes
 import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.semanticcpg.language.*
+import io.shiftleft.semanticcpg.language.nodemethods.TypeMethods
 
 class TypeTraversal(val traversal: Iterator[Type]) extends AnyVal {
 
@@ -91,4 +92,6 @@ class TypeTraversal(val traversal: Iterator[Type]) extends AnyVal {
   def expression: Iterator[Expression] =
     traversal.flatMap(_.evalTypeIn).collectAll[Expression]
 
+  def rootType: Iterator[Type] = traversal.map(t => t.getRootType).distinct
+  
 }
