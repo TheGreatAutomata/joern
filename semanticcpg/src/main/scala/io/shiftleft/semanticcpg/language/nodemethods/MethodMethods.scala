@@ -101,4 +101,28 @@ class MethodMethods(val method: Method) extends AnyVal with NodeExtension with H
   def allAssignments: Iterator[Call] = {
     method.call.filter(_.name == "<operator>.assignment").iterator
   }
+
+  def helperForAllCallerMethods(currentNode: Method, visited: Set[Method]): Set[Method] = {
+    if (visited.contains(currentNode)) {
+      // 如果当前节点已经访问过，返回空
+      Set.empty
+    } else {
+      // 收集直接调用当前节点的所有函数
+      val directCallers = currentNode._callIn.collectAll[Call].flatMap(_.method).toSet
+
+      // 更新已访问集合
+      val newVisited = visited + currentNode
+
+      // 递归地查找每个直接调用本函数的函数的被调用情况
+      val indirectCallers = directCallers.flatMap { caller =>
+        helperForAllCallerMethods(caller, newVisited)
+      }
+
+      // 返回当前函数的直接调用者和间接调用者的并集
+      directCallers ++ indirectCallers
+    }
+  }
+  
+  def allCallerMethods: Iterator[Method] = helperForAllCallerMethods(method, Set.empty).iterator
+
 }

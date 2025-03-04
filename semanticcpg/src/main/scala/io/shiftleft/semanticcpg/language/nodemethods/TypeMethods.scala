@@ -39,4 +39,12 @@ class TypeMethods(val node : Type) extends AnyVal with NodeExtension {
 
   def getRootType: Type = searchThrowType(node, SearchEdgeForRemovePointerArrayReferenceAliasSpecialize)
   
+  def isPointerType: Boolean = {
+    node != null && node._pointerOfOut.nonEmpty
+  }
+
+  def isArrayType: Boolean = {
+    node != null && node._arrayOfOut.nonEmpty
+  }
+
 }
