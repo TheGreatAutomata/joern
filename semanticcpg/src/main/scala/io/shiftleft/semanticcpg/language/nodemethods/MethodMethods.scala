@@ -4,7 +4,10 @@ import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.semanticcpg.NodeExtension
 import io.shiftleft.semanticcpg.language.*
 
+val resolver = NoResolve
+
 class MethodMethods(val method: Method) extends AnyVal with NodeExtension with HasLocation {
+
 
   /** Traverse to annotations of method
     */
@@ -74,5 +77,28 @@ class MethodMethods(val method: Method) extends AnyVal with NodeExtension with H
       offset    <- method.offset
       offsetEnd <- method.offsetEnd
     } yield content.slice(offset, offsetEnd)
+  }
+
+  def allCalledMethods: Iterator[Method] = {
+    val visited = collection.mutable.Set[Method]()
+    def helper(m: Method): Iterator[Method] = {
+      if (visited.contains(m)) {
+        Iterator.empty
+      } else {
+        visited.add(m)
+        val directCalledMethods = m.call.filterNot(_.isBuildIn).callee(resolver).l
+        if (directCalledMethods.isEmpty) {
+          Iterator.empty
+        } else {
+          val indirectCalledMethods = directCalledMethods.flatMap(m => helper(m)).l
+          (directCalledMethods ++ indirectCalledMethods).iterator
+        }
+      }
+    }
+    helper(method)
+  }
+
+  def allAssignments: Iterator[Call] = {
+    method.call.filter(_.name == "<operator>.assignment").iterator
   }
 }
