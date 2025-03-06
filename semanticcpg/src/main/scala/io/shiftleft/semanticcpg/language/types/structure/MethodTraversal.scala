@@ -176,4 +176,8 @@ class MethodTraversal(val traversal: Iterator[Method]) extends AnyVal {
     traversal.flatMap(_.content)
   }
 
+  def allCallerMethods: Iterator[Method] = {
+    traversal.flatMap(_.allCallerMethods)
+  }
+
 }
