@@ -1,8 +1,10 @@
 package io.shiftleft.semanticcpg.language.nodemethods
 
 import io.shiftleft.codepropertygraph.generated.nodes.*
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.NodeExtension
 import io.shiftleft.semanticcpg.language.*
+import io.shiftleft.semanticcpg.language.operatorextension.OpNodes
 
 val resolver = NoResolve
 
@@ -98,8 +100,8 @@ class MethodMethods(val method: Method) extends AnyVal with NodeExtension with H
     helper(method)
   }
 
-  def allAssignments: Iterator[Call] = {
-    method.call.filter(_.name == "<operator>.assignment").iterator
+  def allAssignments: Iterator[OpNodes.Assignment] = {
+    method.call.filter(_.name == "<operator>.assignment").cast[OpNodes.Assignment]
   }
 
   def helperForAllCallerMethods(currentNode: Method, visited: Set[Method]): Set[Method] = {
